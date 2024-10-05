@@ -19,6 +19,10 @@ jobs:
       - name: Generate Docker Compose
         run: make generate-docker-compose
 
+      - name: Prepare install script
+        run: |
+          sed -e "s/\${RELEASE_TAG_VERSION}/${TAG_NAME}/g" \
+          scripts/install.sh > install.sh
 
       - name: Release
         uses: softprops/action-gh-release@v2
@@ -26,6 +30,10 @@ jobs:
           files: |
             docker-compose*.*ml
             kubernetes/deploy.yaml
+            install.sh
           token: ${{ secrets.GITHUB_TOKEN }}
-          body: ${{ github.ref }}
+          body: |
+            This is the release of version ${{ env.TAG_NAME }}.
+            Multiline test.
+            
       
