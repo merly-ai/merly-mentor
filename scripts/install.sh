@@ -48,12 +48,25 @@ install_docker_debian() {
     echo "Docker installation completed. Please log out and log back in to apply the docker group."
 }
 
-# Install Docker on RedHat-based systems (RHEL, CentOS, Fedora)
+# Install Docker on RedHat-based systems (RHEL, CentOS)
 install_docker_redhat() {
     echo "Docker is not installed. Installing Docker for RedHat-based Linux..."
     sudo dnf -y remove docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine
     sudo dnf -y install dnf-plugins-core
     sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+    sudo dnf -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    sudo systemctl start docker
+    sudo systemctl enable docker
+    sudo usermod -aG docker $USER
+    echo "Docker installation completed. Please log out and log back in to apply the docker group."
+}
+
+# Install Docker on Fedora
+install_docker_fedora() {
+    echo "Docker is not installed. Installing Docker for Fedora Linux..."
+    sudo dnf -y remove docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine
+    sudo dnf -y install dnf-plugins-core
+    sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
     sudo dnf -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
     sudo systemctl start docker
     sudo systemctl enable docker
@@ -82,8 +95,11 @@ check_docker_and_compose() {
                 ubuntu|debian)
                     install_docker_debian
                     ;;
-                rhel|centos|fedora)
+                rhel|centos)
                     install_docker_redhat
+                    ;;
+                fedora)
+                    install_docker_fedora
                     ;;
                 *)
                     echo "Unsupported Linux distribution: $DISTRO"
