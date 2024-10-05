@@ -10,7 +10,7 @@ check_docker_and_compose() {
     if command_exists docker; then
         echo "Docker is already installed."
     else
-        echo "Docker is not installed. Installing Docker for Fedora Linux..."
+        echo "Docker is not installed. Installing Docker..."
         curl -fsSL https://get.docker.com -o get-docker.sh
         sudo sh get-docker.sh
         sudo systemctl start docker
@@ -42,14 +42,14 @@ fi
 
 # Function to display help message
 usage() {
-  echo "Usage: $0 -K <REGISTRATION_KEY>"
+  echo "Usage: $0 -k <REGISTRATION_KEY>"
   exit 1
 }
 
 # Parse command line arguments
-while getopts "K:" opt; do
+while getopts "k:" opt; do
   case ${opt} in
-    K )
+    k )
       REGISTRATION_KEY=$OPTARG
       ;;
     \? )
@@ -72,4 +72,5 @@ sudo mkdir merly-mentor
 sudo chmod 777 merly-mentor
 
 # Run docker-compose up with the registration key
-sudo docker-compose up -d
+sudo docker compose up -d
+
