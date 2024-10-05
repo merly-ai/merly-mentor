@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: merly-mentor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: merly-mentor
+  template:
+    metadata:
+      labels:
+        app: merly-mentor
+    spec:
+      initContainers:
+        # Init container for merly-models
+        - name: merly-models-init
+          image: merlyai/merly-mentor-models:v2.0.0
+          volumeMounts:
+            - mountPath: /app/.models-copy
+              name: models-data
+          command: ["/bin/sh", "-c"]
+          args:
+            - cp -r /app/.models/* /app/.models-copy
+
+        # Init container for merly-assets
+        - name: merly-assets-init
+          image: merlyai/merly-mentor-assets:v1.0.0
+          volumeMounts:
+            - mountPath: /app/.assets-copy
+              name: assets-data
+          command: ["/bin/sh", "-c"]
+          args:
+            - cp -r /app/.assets/* /app/.assets-copy
+
+      containers:
+        - name: merly-mentor
+          image: merlyai/merly-mentor-daemon:v0.4.19
+          ports:
+            - containerPort: 4200
+          env:
+            - name: REGISTRATION_KEY
+              value: "" # Add your registration key here
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "250m"
+            limits:
+              memory: "128Mi"
+              cpu: "500m"
+          volumeMounts:
+            - mountPath: /merly/.mentor
+              name: mentor-data
+            - mountPath: /merly/.models
+              name: models-data
+            - mountPath: /merly/.assets
+              name: assets-data
+
+      volumes:
+        - name: mentor-data
+          persistentVolumeClaim:
+            claimName: mentor-data-pvc
+        - name: models-data
+          emptyDir: {}
+        - name: assets-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: merly-mentor
+spec:
+  ports:
+    - port: 4200
+  selector:
+    app: merly-mentor

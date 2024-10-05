@@ -1,3 +1,2 @@
-/docker-compose*.yml
-/docker-compose*.yaml
-
+# Ignore docker-compose files with both .yml and .yaml extensions in the root directory
+/docker-compose*.*ml

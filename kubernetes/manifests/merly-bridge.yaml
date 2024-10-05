@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: merly-bridge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: merly-bridge
+  template:
+    metadata:
+      labels:
+        app: merly-bridge
+    spec:
+      containers:
+        - name: merly-bridge
+          image: merlyai/merly-mentor-bridge:v0.1.0
+          ports:
+            - containerPort: 8080
+          env:
+            - name: MERLY_AI_DAEMON_URL
+              value: "http://merly-mentor:4200/"
+          volumeMounts:
+            - mountPath: /merly/.mentor
+              name: mentor-data
+          resources:
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+      volumes:
+        - name: mentor-data
+          persistentVolumeClaim:
+            claimName: mentor-data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: merly-bridge
+spec:
+  ports:
+    - port: 8080
+  selector:
+    app: merly-bridge
