@@ -1,0 +1,60 @@
+services:
+  merly-models:
+    image: merlyai/merly-mentor-models:${MODELS_TAG}
+    volumes:
+      - models-data:/app/.models
+    depends_on: []
+
+  merly-assets:
+    image: merlyai/merly-mentor-assets:${ASSETS_TAG}
+    volumes:
+      - assets-data:/app/.assets
+    depends_on: []
+
+  merly-mentor:
+    image: merlyai/merly-mentor-daemon:${MENTOR_TAG}
+    environment:
+      - REGISTRATION_KEY=${REGISTRATION_KEY}
+    ports:
+      - "4200:4200"
+    volumes:
+      - mentor-data:/merly/.mentor
+      - models-data:/merly/.models
+      - assets-data:/merly/.assets
+    init: true
+    depends_on:
+      - merly-models
+      - merly-assets
+  
+  merly-bridge:
+    image: merlyai/merly-mentor-bridge:${BRIDGE_TAG}
+    environment:
+      - MERLY_AI_DAEMON_URL=http://merly-mentor:4200/
+    ports:
+      - "8080:8080"
+    volumes:
+      - mentor-data:/merly/.mentor
+    init: true
+    depends_on:
+      - merly-mentor
+
+  merly-ui:
+    image: merlyai/merly-mentor-ui:${UI_TAG}
+    environment:
+      - MERLY_AI_BRIDGE_URL=http://merly-bridge:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      - merly-bridge
+
+volumes:
+  mentor-data:
+    driver: local
+    driver_opts:
+      type: none
+      device: ${PWD}/mentor-data
+      o: bind
+  assets-data:
+    driver: local
+  models-data:
+    driver: local
