@@ -64,10 +64,8 @@ install_docker_redhat() {
 # Install Docker on Fedora
 install_docker_fedora() {
     echo "Docker is not installed. Installing Docker for Fedora Linux..."
-    sudo dnf -y remove docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine
-    sudo dnf -y install dnf-plugins-core
-    sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
-    sudo dnf -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sudo sh get-docker.sh
     sudo systemctl start docker
     sudo systemctl enable docker
     sudo usermod -aG docker $USER
