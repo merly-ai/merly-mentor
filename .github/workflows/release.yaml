@@ -3,25 +3,31 @@ on:
   push:
     tags:
       - '*'
-
+env:
+  TAG_NAME: ''
+  
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
+      - name: Get the tag name
+        id: get_tag
+        run: echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
       - name: Generate Docker Compose
         run: make generate-docker-compose
 
       - name: Generate Kubernetes Deployment
-        run: cp kubernetes/deploy.yaml deploy-${{ github.ref }}.yaml
+        run: cp kubernetes/deploy.yaml deploy-${{ ENV.TAG_NAME }}.yaml
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             docker-compose*.*ml
-            deploy-${{ github.ref }}.yaml
+            deploy-${{ ENV.TAG_NAME }}.yaml
           token: ${{ secrets.GITHUB_TOKEN }}
           body: ${{ github.ref }}
       
