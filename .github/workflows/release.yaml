@@ -19,15 +19,13 @@ jobs:
       - name: Generate Docker Compose
         run: make generate-docker-compose
 
-      - name: Generate Kubernetes Deployment
-        run: cp kubernetes/deploy.yaml deploy-${{ ENV.TAG_NAME }}.yaml
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             docker-compose*.*ml
-            deploy-${{ ENV.TAG_NAME }}.yaml
+            kubernetes/deploy.yaml
           token: ${{ secrets.GITHUB_TOKEN }}
           body: ${{ github.ref }}
       
