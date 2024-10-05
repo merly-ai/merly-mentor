@@ -1,2 +1,3 @@
 # Ignore docker-compose files with both .yml and .yaml extensions in the root directory
-/docker-compose*.*ml
+docker-compose*.*ml
+mentor-data

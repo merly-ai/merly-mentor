@@ -8,7 +8,6 @@ BRIDGE_TAG="v0.1.0"
 UI_TAG="v0.1.0"
 TEMPLATE_FILE=""
 OUTPUT_FILE=""
-REGISTRATION_KEY=""
 
 # Function to display help
 show_help() {
@@ -35,7 +34,6 @@ while [[ "$#" -gt 0 ]]; do
         --ui-tag) UI_TAG="$2"; shift ;;
         --template-file|-i) TEMPLATE_FILE="$2"; shift ;;
         --output-file|-o) OUTPUT_FILE="$2"; shift ;;
-        --registration-key) REGISTRATION_KEY="$2"; shift ;;
         -h|--help) show_help; exit 0 ;;
         *) echo "Unknown option: $1"; show_help; exit 1 ;;
     esac

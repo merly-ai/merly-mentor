@@ -1,0 +1,27 @@
+name: Release
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate Docker Compose
+        run: make generate-docker-compose
+
+      - name: Generate Kubernetes Deployment
+        run: cp kubernetes/deploy.yaml deploy-${{ github.ref }}.yaml
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            docker-compose*.*ml
+            deploy-${{ github.ref }}.yaml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: ${{ github.ref }}
+      
