@@ -17,6 +17,7 @@ check_docker_and_compose() {
         sudo systemctl enable docker
         sudo usermod -aG docker $USER
         echo "Docker installation completed. Please log out and log back in to apply the docker group."
+    fi
 }
 
 # Main script execution
