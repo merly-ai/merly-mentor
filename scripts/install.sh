@@ -75,8 +75,8 @@ export REGISTRATION_KEY=$REGISTRATION_KEY
 # echo "PWD=$PWD" >> .env
 
 # Create mentor data dir and assign permissions
-sudo mkdir mentor-data
-sudo chmod 777 mentor-data
+mkdir mentor-data
+chmod 777 mentor-data
 
 # Run docker-compose up with the registration key
 docker compose up -d
