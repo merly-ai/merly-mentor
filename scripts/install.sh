@@ -76,5 +76,5 @@ sudo mkdir mentor-data
 sudo chmod 777 mentor-data
 
 # Run docker-compose up with the registration key
-sudo docker compose up -d
+docker compose up -d
 
