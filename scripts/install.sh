@@ -12,14 +12,14 @@ check_docker_and_compose() {
     else
         echo "Docker is not installed. Installing Docker..."
         curl -fsSL https://get.docker.com -o get-docker.sh
-        sudo sh get-docker.sh
+        sudo sh get-docker.sh > /dev/null 2>&1
         # Check if apt exists
         if command -v apt > /dev/null; then
           echo "apt found, proceeding with the installation of uidmap..."
-          sudo apt install -y uidmap
+          sudo apt install -y uidmap > /dev/null 2>&1
         fi
         dockerd-rootless-setuptool.sh install
-        echo "Docker installation completed. Please log out and log back in to apply the docker group."
+        echo "Docker installation completed."
     fi
 }
 
@@ -81,3 +81,12 @@ chmod 777 mentor-data
 # Run docker-compose up with the registration key
 docker compose up -d
 
+# Sucessful Installation
+echo -e "\033[1;32m"
+echo "======================================="
+echo "  Installation of Merly Mentor SUCCESSFUL!"
+echo "======================================="
+echo -e "\033[0m"
+
+# Display the visit link in a highlighted format
+echo -e "\033[1;34mPlease visit \033[4;34mhttp://localhost:3000/\033[0m"
