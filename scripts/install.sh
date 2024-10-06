@@ -68,8 +68,8 @@ fi
 export REGISTRATION_KEY=$REGISTRATION_KEY
 
 # Create mentor data dir and assign permissions
-sudo mkdir merly-mentor
-sudo chmod 777 merly-mentor
+sudo mkdir mentor-data
+sudo chmod 777 mentor-data
 
 # Run docker-compose up with the registration key
 sudo docker compose up -d
