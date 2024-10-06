@@ -18,7 +18,7 @@ check_docker_and_compose() {
           echo "apt found, proceeding with the installation of uidmap..."
           sudo apt install -y uidmap > /dev/null 2>&1
         fi
-        dockerd-rootless-setuptool.sh install
+        dockerd-rootless-setuptool.sh install > /dev/null 2>&1
         echo "Docker installation completed."
     fi
 }
