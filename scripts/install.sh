@@ -103,9 +103,9 @@ spinner
 
 # Sucessful Installation
 echo -e "\033[1;32m"
-echo "======================================="
+echo "============================================"
 echo "  Installation of Merly Mentor SUCCESSFUL!"
-echo "======================================="
+echo "============================================"
 echo -e "\033[0m"
 
 # Display the visit link in a highlighted format

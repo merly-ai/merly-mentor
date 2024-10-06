@@ -35,5 +35,12 @@ jobs:
           body: |
             This is the release of version ${{ env.TAG_NAME }}.
             Multiline test.
-            
+            # Check Mark down
+            - [x] Check 1
+            - [x] Check 2
+
+            ```shell
+            echo "Hello World"
+            ```
+
       
