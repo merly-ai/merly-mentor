@@ -16,7 +16,7 @@ services:
     environment:
       - REGISTRATION_KEY=${REGISTRATION_KEY}
     ports:
-      - "4200:4200"
+      - "4200"
     volumes:
       - mentor-data:/merly/.mentor
       - models-data:/merly/.models
@@ -31,7 +31,7 @@ services:
     environment:
       - MERLY_AI_DAEMON_URL=http://merly-mentor:4200/
     ports:
-      - "8080:8080"
+      - "8080"
     volumes:
       - mentor-data:/merly/.mentor
     init: true
