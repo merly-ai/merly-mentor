@@ -13,9 +13,8 @@ check_docker_and_compose() {
         echo "Docker is not installed. Installing Docker..."
         curl -fsSL https://get.docker.com -o get-docker.sh
         sudo sh get-docker.sh
-        sudo systemctl start docker
-        sudo systemctl enable docker
-        sudo usermod -aG docker $USER
+        sudo apt install -y uidmap
+        dockerd-rootless-setuptool.sh install
         echo "Docker installation completed. Please log out and log back in to apply the docker group."
     fi
 }
