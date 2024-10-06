@@ -65,6 +65,11 @@ fi
 
 # Export the registration key to the environment
 export REGISTRATION_KEY=$REGISTRATION_KEY
+export PWD=$(pwd)
+
+# # Write the variables to the .env file
+# echo "REGISTRATION_KEY=$REGISTRATION_KEY" > .env
+# echo "PWD=$PWD" >> .env
 
 # Create mentor data dir and assign permissions
 sudo mkdir mentor-data
