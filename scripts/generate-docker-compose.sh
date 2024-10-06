@@ -1,24 +1,31 @@
 #!/bin/bash
 
-# Default values for the tags and files
-MODELS_TAG="v2.0.0"
-ASSETS_TAG="v1.0.0"
-MENTOR_TAG="v0.4.19"
-BRIDGE_TAG="v0.1.0"
-UI_TAG="v0.1.0"
+# Default template and output files
 TEMPLATE_FILE=""
 OUTPUT_FILE=""
+
+# Load the version tags from an external file
+TAGS_FILE="scripts/versions.conf"
+
+# Check if the tags file exists
+if [ ! -f "$TAGS_FILE" ]; then
+    echo "Tags file '$TAGS_FILE' does not exist."
+    exit 1
+fi
+
+# Source the tags file
+source "$TAGS_FILE"
 
 # Function to display help
 show_help() {
     echo "Usage: $0 [options]"
     echo
     echo "Options:"
-    echo "  --models-tag TAG         Set merly-models image tag (default: v2.0.0)"
-    echo "  --assets-tag TAG         Set merly-assets image tag (default: v1.0.0)"
-    echo "  --mentor-tag TAG         Set merly-mentor image tag (default: v0.4.19)"
-    echo "  --bridge-tag TAG         Set merly-bridge image tag (default: v0.1.0)"
-    echo "  --ui-tag TAG             Set merly-ui image tag (default: v0.1.0)"
+    echo "  --models-tag TAG         Set merly-models image tag (default: $MODELS_TAG)"
+    echo "  --assets-tag TAG         Set merly-assets image tag (default: $ASSETS_TAG)"
+    echo "  --mentor-tag TAG         Set merly-mentor image tag (default: $MENTOR_TAG)"
+    echo "  --bridge-tag TAG         Set merly-bridge image tag (default: $BRIDGE_TAG)"
+    echo "  --ui-tag TAG             Set merly-ui image tag (default: $UI_TAG)"
     echo "  --template-file FILE, -i FILE    Set the template file (default: docker-compose.template.yml)"
     echo "  --output-file FILE, -o FILE      Set the output file (default: docker-compose.yml)"
     echo

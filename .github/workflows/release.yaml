@@ -5,6 +5,12 @@ on:
       - '*'
 env:
   TAG_NAME: ''
+  RELEASE_DATE: ''
+  MODELS_TAG: ''
+  ASSETS_TAG: ''
+  MENTOR_TAG: ''
+  BRIDGE_TAG: ''
+  UI_TAG: ''
   
 jobs:
   release:
@@ -24,6 +30,20 @@ jobs:
           sed -e "s/\${RELEASE_TAG_VERSION}/${TAG_NAME}/g" \
           scripts/install.sh > install.sh
 
+      - name: Get the relase date
+        id: get_date
+        run: echo "RELEASE_DATE=$(date +"%B %-d, %Y")" >> $GITHUB_ENV
+
+      - name: Source Container Versions
+        run: |
+          # Load environment variables from tags.conf
+          source ./scripts/versions.conf
+          echo "MODELS_TAG=$MODELS_TAG" >> $GITHUB_ENV
+          echo "ASSETS_TAG=$ASSETS_TAG" >> $GITHUB_ENV
+          echo "MENTOR_TAG=$MENTOR_TAG" >> $GITHUB_ENV
+          echo "BRIDGE_TAG=$BRIDGE_TAG" >> $GITHUB_ENV
+          echo "UI_TAG=$UI_TAG" >> $GITHUB_ENV
+
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
@@ -33,14 +53,19 @@ jobs:
             install.sh
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |
-            This is the release of version ${{ env.TAG_NAME }}.
-            Multiline test.
-            # Check Mark down
-            - [x] Check 1
-            - [x] Check 2
+            ---
+            **Release Notes**  
+            **Version: ${{ ENV.TAG_NAME }}**  
+            **Release Date: ${{ ENV.RELEASE_DATE }}**
+            ---
 
-            ```shell
-            echo "Hello World"
-            ```
+            #### Services Versions
+            - **Merly Mentor Models:** ${{ ENV.MODELS_TAG }}
+            - **Merly Mentor Assets:** ${{ ENV.ASSETS_TAG }}
+            - **Merly Mentor Daemon:** ${{ ENV.MENTOR_TAG }}
+            - **Merly Mentor Bridge:** ${{ ENV.BRIDGE_TAG }}
+            - **Merly Mentor UI:** ${{ ENV.UI_TAG }}
+            
+
 
       
