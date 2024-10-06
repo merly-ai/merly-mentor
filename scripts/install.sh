@@ -1,5 +1,20 @@
 #!/bin/bash
 
+# Fancy progress spinner
+spinner() {
+    local pid=$!
+    local delay=0.1
+    local spinstr='|/-\'
+    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
+        local temp=${spinstr#?}
+        printf " [%c]  " "$spinstr"
+        spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+        printf "\b\b\b\b\b\b"
+    done
+    printf "    \b\b\b\b"
+}
+
 # Function to check if a command exists
 command_exists() {
     command -v "$1" >/dev/null 2>&1
@@ -8,23 +23,24 @@ command_exists() {
 # Check for Docker and Docker Compose
 check_docker_and_compose() {
     if command_exists docker; then
-        echo "Docker is already installed."
+        echo -e "\033[1;32mDocker is already installed.\033[0m"
     else
-        echo "Docker is not installed. Installing Docker..."
-        curl -fsSL https://get.docker.com -o get-docker.sh
-        sudo sh get-docker.sh > /dev/null 2>&1
-        # Check if apt exists
+        echo -e "\033[1;33mDocker is not installed. Installing Docker...\033[0m"
+        curl -fsSL https://get.docker.com -o get-docker.sh &
+        spinner
+        sudo sh get-docker.sh > /dev/null 2>&1 &
+        spinner
         if command -v apt > /dev/null; then
-          echo "apt found, proceeding with the installation of uidmap..."
-          sudo apt install -y uidmap > /dev/null 2>&1
+          echo -e "\033[1;34mInstalling uidmap...\033[0m"
+          sudo apt install -y uidmap > /dev/null 2>&1 &
+          spinner
         fi
-        dockerd-rootless-setuptool.sh install > /dev/null 2>&1
-        echo "Docker installation completed."
+        echo -e "\033[1;32mDocker installation completed.\033[0m"
     fi
 }
 
 # Main script execution
-echo "Checking for Docker and Docker Compose installation..."
+echo -e "\033[1;34mChecking for Docker and Docker Compose installation...\033[0m"
 check_docker_and_compose
 
 # Default values
@@ -34,11 +50,11 @@ DOCKER_COMPOSE_FILE="docker-compose.yaml"
 
 # Download docker-compose.yaml if it doesn't exist
 if [ ! -f "$DOCKER_COMPOSE_FILE" ]; then
-  echo "Downloading docker-compose.yaml..."
-  curl -L -o $DOCKER_COMPOSE_FILE $DOCKER_COMPOSE_URL
-  
+  echo -e "\033[1;33mDownloading docker-compose.yaml...\033[0m"
+  curl -L -o $DOCKER_COMPOSE_FILE $DOCKER_COMPOSE_URL &
+  spinner
   if [ $? -ne 0 ]; then
-    echo "Error: Failed to download the docker-compose.yaml file."
+    echo -e "\033[1;31mError: Failed to download the docker-compose.yaml file.\033[0m"
     exit 1
   fi
 fi
@@ -63,23 +79,23 @@ done
 
 # Check if registration key is provided
 if [ -z "$REGISTRATION_KEY" ]; then
-  echo "Error: Registration key is required."
+  echo -e "\033[1;31mError: Registration key is required.\033[0m"
   usage
 fi
 
 # Export the registration key to the environment
 export REGISTRATION_KEY=$REGISTRATION_KEY
 
-# # Write the variables to the .env file
-# echo "REGISTRATION_KEY=$REGISTRATION_KEY" > .env
-# echo "PWD=$PWD" >> .env
-
 # Create mentor data dir and assign permissions
-mkdir mentor-data
+echo -e "\033[1;34mSetting up mentor data directory...\033[0m"
+mkdir -p mentor-data
 chmod 777 mentor-data
+echo -e "\033[1;32mMentor data directory set up successfully.\033[0m"
 
 # Run docker-compose up with the registration key
-docker compose up -d
+echo -e "\033[1;34mStarting Docker Compose services...\033[0m"
+docker compose up -d &
+spinner
 
 # Sucessful Installation
 echo -e "\033[1;32m"
