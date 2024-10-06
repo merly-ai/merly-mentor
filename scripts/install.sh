@@ -35,6 +35,10 @@ check_docker_and_compose() {
           sudo apt install -y uidmap > /dev/null 2>&1 &
           spinner
         fi
+        echo -e "\033[1;32mDocker Rootless Setup.\033[0m"
+        spinner
+        dockerd-rootless-setuptool.sh install > /dev/null 2>&1 &
+        spinner
         echo -e "\033[1;32mDocker installation completed.\033[0m"
     fi
 }
