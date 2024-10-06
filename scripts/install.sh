@@ -13,7 +13,11 @@ check_docker_and_compose() {
         echo "Docker is not installed. Installing Docker..."
         curl -fsSL https://get.docker.com -o get-docker.sh
         sudo sh get-docker.sh
-        sudo apt install -y uidmap
+        # Check if apt exists
+        if command -v apt > /dev/null; then
+          echo "apt found, proceeding with the installation of uidmap..."
+          sudo apt install -y uidmap
+        fi
         dockerd-rootless-setuptool.sh install
         echo "Docker installation completed. Please log out and log back in to apply the docker group."
     fi
