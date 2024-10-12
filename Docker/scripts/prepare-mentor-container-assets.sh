@@ -87,7 +87,7 @@ prepare_models() {
     for model_name in $models; do
         model_url=$(echo "$response" | jq -r --arg model_name "$model_name" '.[] | select(.Name==$model_name) | .Url')
         size=$(echo "$response" | jq -r --arg model_name "$model_name" '.[] | select(.Name==$model_name) | .Size')
-        download_file "$model_name" "$model_url" ".models" $size
+        download_file "$model_name.bin" "$model_url" ".models" $size
     done
 }
 

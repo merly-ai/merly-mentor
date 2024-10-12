@@ -35,8 +35,3 @@ RUN npm install --omit=dev --ignore-scripts
 # Change ownership of files to the non-root user
 RUN chown -R appuser:appgroup /app
 
-# Debug: Folder permissions
-RUN ls -la /app
-RUN ls -la /app/.models
-RUN ls -la /app/.assets
-RUN ls -la /app/UI
