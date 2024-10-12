@@ -11,10 +11,10 @@ LABEL org.opencontainers.image.documentation=""
 LABEL org.opencontainers.image.maintainers="Urs C. Muff <urs.muff@merly.ai>, Justin Gottschlich <justin@merly.ai>"
 LABEL org.opencontainers.image.authors="Urs C. Muff <urs.muff@merly.ai>, Saif Zaman <saif.zaman@merly.ai>"
 
-# Install Node.js 20.x from NodeSource and jq
+# Install Node.js 20.x from NodeSource, jq, unzip and git
 RUN curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && \
     microdnf install -y nodejs && \
-    microdnf install -y jq && \
+    microdnf install -y jq unzip git && \
     microdnf clean all
 
 # Security: Create a non-root user and group
