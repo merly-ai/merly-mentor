@@ -28,15 +28,14 @@ else
 fi
 
 # Run Merly Mentor Daemon
-./MerlyMentor -N daemon --stdout &> >(sed 's/^/[Mentor Daemon] /') &
+./MerlyMentor -N daemon --stdout &
 
 # Run Merly Mentor Bridge
-./MentorBridge &> >(sed 's/^/[Mentor Bridge] /') &
+./MentorBridge &
 
 # Run Merly Mentor UI
 cd UI
-npm start &> >(sed 's/^/[Mentor UI] /') &
+npm start &
 
-# Wait for all processes to complete
-wait
+tail -f /dev/null
 
