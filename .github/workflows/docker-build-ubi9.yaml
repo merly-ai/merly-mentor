@@ -43,3 +43,4 @@ jobs:
             ${{ env.IMAGE_NAME }}:latest
             ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           platforms: linux/amd64,linux/arm64
+          

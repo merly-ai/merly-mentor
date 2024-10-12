@@ -38,7 +38,7 @@ cd UI
 npm start &> >(sed 's/^/[Mentor UI] /' | tee -a ../app_combined.log) &
 
 # Display live logs
-tail -f app_combined.log &
+tail -f ../app_combined.log &
 
 # Wait for all processes to complete
 wait
