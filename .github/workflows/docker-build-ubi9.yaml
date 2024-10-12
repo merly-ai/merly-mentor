@@ -42,4 +42,4 @@ jobs:
           tags: |
             ${{ env.IMAGE_NAME }}:latest
             ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-          platforms: linux/amd64,linux/arm64/v8,linux/arm/v7
+          platforms: linux/amd64,linux/arm64
