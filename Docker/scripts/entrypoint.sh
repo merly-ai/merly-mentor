@@ -27,15 +27,27 @@ else
   echo "$OUTPUT_FILE already exists. No changes made."
 fi
 
-# Run Merly Mentor Daemon
-./MerlyMentor -N daemon --stdout &
+# Define color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color (reset)
 
-# Run Merly Mentor Bridge
-./MentorBridge &
+# Trap SIGINT (CTRL + C) and forward to all background processes
+trap "kill 0" SIGINT
 
-# Run Merly Mentor UI
+# Run Merly Mentor Daemon and stream live logs with "DAEMON" in blue
+./MerlyMentor -N daemon --stdout 2>&1 | sed "s/^/${BLUE}[MENTOR DAEMON] ${NC}/" &
+
+# Run Merly Mentor Bridge and stream live logs with "BRIDGE" in green
+./MentorBridge 2>&1 | sed "s/^/${GREEN}[MENTOR BRIDGE] ${NC}/" &
+
+# Run Merly Mentor UI and stream live logs with "UI" in yellow
 cd UI
-npm start &
+npm start 2>&1 | sed "s/^/${YELLOW}[MENTOR UI] ${NC}/" &
 
-tail -f /dev/null
+# Wait for all background processes to finish, while streaming live logs
+wait
+
 
