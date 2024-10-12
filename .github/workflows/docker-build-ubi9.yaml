@@ -35,7 +35,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: Docker
-          file: Dockerfile.ubi9
+          file: Docker/Dockerfile.ubi9
           push: false
           sbom: true
           provenance: mode=max
