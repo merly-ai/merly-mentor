@@ -1,0 +1,45 @@
+name: Docker Build and Push Ubi9
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Specify the container version"
+        required: true
+        default: "v1.0.0"
+
+jobs:
+  Docker_Build_Push:
+    name: Docker Build and Push
+    runs-on: ubuntu-24.04
+    env:
+      IMAGE_NAME:     merlyai/merly-mentor-ubi9
+      IMAGE_TAG:      ${{ github.event.inputs.image_tag }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+  
+      - name: Log in to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+  
+      - name: Set up QEMU (for multi-platform builds)
+        uses: docker/setup-qemu-action@v2
+  
+      - name: Build Docker and Push image
+        uses: docker/build-push-action@v5
+        with:
+          context: Docker
+          file: Dockerfile.ubi9
+          push: false
+          sbom: true
+          provenance: mode=max
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          platforms: linux/amd64,linux/arm64/v8,linux/arm/v7
