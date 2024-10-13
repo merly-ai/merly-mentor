@@ -41,11 +41,11 @@ npm start 2>&1 | sed 's/^/[MENTOR UI] /' &
 MENTOR_UI_PID=$!
 
 # Function to stop all processes
-function stop_all_processes {
+stop_all_processes() {
     echo "Stopping all Merly Mentor processes..."
-    kill $MENTOR_DAEMON_PID
-    kill $MENTOR_BRIDGE_PID
-    kill $MENTOR_UI_PID
+    kill -SIGINT $MENTOR_DAEMON_PID
+    kill -SIGINT $MENTOR_BRIDGE_PID
+    kill -SIGINT $MENTOR_UI_PID
 }
 
 # Use trap to ensure cleanup on exit (SIGINT or SIGTERM)
