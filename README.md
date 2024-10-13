@@ -52,7 +52,6 @@ To deploy Merly Mentor using Docker:
 
 3. Access Merly Mentor by opening your browser and navigating to `http://localhost:3000`.
 
-   ```
 
 ### Multi-Container Deployment with Docker Compose
 
