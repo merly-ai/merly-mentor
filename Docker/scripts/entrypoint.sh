@@ -27,6 +27,9 @@ else
   echo "$OUTPUT_FILE already exists. No changes made."
 fi
 
+# Trap SIGTERM and SIGINT for cleanup
+trap 'kill $(jobs -p)' SIGTERM SIGINT
+
 # Run Merly Mentor Daemon and prefix logs with "DAEMON"
 ./MerlyMentor -N daemon --stdout &
 
@@ -35,4 +38,4 @@ fi
 
 # Run Merly Mentor UI and prefix logs with "UI"
 cd UI
-npm start
+exec npm start
