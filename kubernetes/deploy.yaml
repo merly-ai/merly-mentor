@@ -40,7 +40,7 @@ spec:
             - containerPort: 4200
           env:
             - name: REGISTRATION_KEY
-              value: ""
+              value: ${REGISTRATION_KEY}
           resources:
             requests:
               memory: "64Mi"
