@@ -55,4 +55,3 @@ trap stop_all_processes SIGINT SIGTERM
 wait $MENTOR_DAEMON_PID
 wait $MENTOR_BRIDGE_PID
 wait $MENTOR_UI_PID
-
