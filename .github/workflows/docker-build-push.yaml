@@ -26,9 +26,22 @@ jobs:
     env:
       IMAGE_NAME:     merlyai/merly-mentor-ubi9
       IMAGE_TAG:      ${{ github.event.inputs.image_tag }}
+      POSTFIX:        ''
     steps:
       - name: Check out code
         uses: actions/checkout@v3
+
+      - name: Set POSTFIX based on BUILD_ENV
+        run: |
+          if [ "${{ github.event.inputs.build_env }}" == "Test" ]; then
+            echo "POSTFIX=-Test" >> $GITHUB_ENV
+          elif [ "${{ github.event.inputs.build_env }}" == "Staging" ]; then
+            echo "POSTFIX=-Staging" >> $GITHUB_ENV
+          elif [ "${{ github.event.inputs.build_env }}" == "Pre-Release" ]; then
+            echo "POSTFIX=-Pre-Release" >> $GITHUB_ENV
+          elif [ "${{ github.event.inputs.build_env }}" == "WIP-Demo" ]; then
+            echo "POSTFIX=-WIP-Demo" >> $GITHUB_ENV
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
@@ -51,9 +64,9 @@ jobs:
           sbom: true
           provenance: mode=max
           tags: |
-            ${{ env.IMAGE_NAME }}:latest
-            ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+            ${{ env.IMAGE_NAME }}:latest${{ env.POSTFIX }}
+            ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}${{ env.POSTFIX }}
           platforms: linux/amd64,linux/arm64
           build-args: |
-            BUILD_ENV=${{ github.event.inputs.BUILD_ENV }}
+            BUILD_ENV=${{ github.event.inputs.build_env }}
           
