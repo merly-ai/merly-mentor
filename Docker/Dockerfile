@@ -1,4 +1,4 @@
-FROM node:20.17.0-alpine3.20 AS production
+FROM node:20.18.0 AS production
 
 # Metadata Labels
 LABEL org.opencontainers.image.title="Merly Mentor"
