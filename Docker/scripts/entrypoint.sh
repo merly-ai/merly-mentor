@@ -29,10 +29,30 @@ fi
 
 # Run Merly Mentor Daemon and prefix logs with "DAEMON"
 ./MerlyMentor -N daemon --stdout 2>&1 | sed 's/^/[MENTOR DAEMON] /' &
+MENTOR_DAEMON_PID=$!
 
 # Run Merly Mentor Bridge and prefix logs with "BRIDGE"
 ./MentorBridge 2>&1 | sed 's/^/[MENTOR BRIDGE] /' &
+MENTOR_BRIDGE_PID=$!
 
 # Run Merly Mentor UI and prefix logs with "UI"
 cd UI
-npm start 2>&1 | sed 's/^/[MENTOR UI] /'
+npm start 2>&1 | sed 's/^/[MENTOR UI] /' &
+MENTOR_UI_PID=$!
+
+# Function to stop all processes
+function stop_all_processes {
+    echo "Stopping all Merly Mentor processes..."
+    kill $MENTOR_DAEMON_PID
+    kill $MENTOR_BRIDGE_PID
+    kill $MENTOR_UI_PID
+}
+
+# Use trap to ensure cleanup on exit (SIGINT or SIGTERM)
+trap stop_all_processes SIGINT SIGTERM
+
+# Wait for all processes to finish
+wait $MENTOR_DAEMON_PID
+wait $MENTOR_BRIDGE_PID
+wait $MENTOR_UI_PID
+
