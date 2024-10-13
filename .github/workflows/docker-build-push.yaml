@@ -1,4 +1,4 @@
-name: Docker Build and Push Ubi9
+name: Docker Build and Push
 
 on:
   workflow_dispatch:
@@ -7,10 +7,21 @@ on:
         description: "Specify the container version"
         required: true
         default: "v1.0.0"
+      build_env:
+        description: "Select the build environment"
+        required: true
+        default: "Test"
+        type: choice
+        options:
+          - Staging
+          - Test
+          - Release
+          - Pre-Release
+          - WIP-Demo
 
 jobs:
-  Docker_Build_Push:
-    name: Docker Build and Push
+  Docker_Build_Push_UBI9:
+    name: Docker Build and Push UBI9
     runs-on: ubuntu-24.04
     env:
       IMAGE_NAME:     merlyai/merly-mentor-ubi9
@@ -43,4 +54,6 @@ jobs:
             ${{ env.IMAGE_NAME }}:latest
             ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           platforms: linux/amd64,linux/arm64
+          build-args: |
+            BUILD_ENV=${{ github.event.inputs.BUILD_ENV }}
           

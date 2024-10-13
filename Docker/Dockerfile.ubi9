@@ -23,12 +23,15 @@ RUN groupadd -r appgroup && useradd -r -g appgroup -d /app -s /sbin/nologin appu
 # Set working directory
 WORKDIR /app
 
+# Define a build argument with a default value of 'Test'
+ARG BUILD_ENV=Test
+
 # Copy only necessary files
 COPY ./scripts/prepare-mentor-container-assets.sh /app/
 COPY ./scripts/entrypoint.sh /app/
 RUN chmod +x /app/prepare-mentor-container-assets.sh
 RUN chmod +x /app/entrypoint.sh
-RUN bash /app/prepare-mentor-container-assets.sh Redhat Test
+RUN bash /app/prepare-mentor-container-assets.sh Redhat $BUILD_ENV
 
 # Install production dependencies
 WORKDIR /app/UI

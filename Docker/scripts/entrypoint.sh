@@ -35,7 +35,4 @@ fi
 
 # Run Merly Mentor UI and prefix logs with "UI"
 cd UI
-npm start 2>&1 | sed 's/^/[MENTOR UI] /' &
-
-# Keep container running
-tail -f /dev/null
+npm start 2>&1 | sed 's/^/[MENTOR UI] /'
