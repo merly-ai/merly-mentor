@@ -1,0 +1,1217 @@
+openapi: 3.0.0
+info:
+  title: Mentor API
+  version: 0.2.0
+  description: |
+    API for managing and analyzing git-based code repositories.
+
+    ### Key Features:
+    - Repository management and life-time analysis
+    - Branch and snapshot tracking
+    - Automatic language detection
+    - System-generated reports, issues, scores, and insights
+    - User management of issue actions, comments, severity, and assignments
+
+    ### Pagination:
+    List endpoints support pagination using 'page' and 'per_page' query parameters.
+    The default page size is 20 items, and the maximum is 100.
+
+    ### Sorting:
+    Most list endpoints support sorting using the 'sort' query parameter.
+    Use comma-separated field names, prefixed with '-' for descending order.
+    Example: sort=name,-created_at
+
+    ### Filtering:
+    Advanced filtering is available using the 'filter' query parameter.
+    Use JSON format to specify complex filter conditions.
+    Example: filter={"severity":["high","critical"],"status":"open"}
+
+    ### Change Log:
+    #### v0.2.0:
+    - Added CI/CD integration endpoints under /ci path
+    - New schemas for CI/CD analysis requests and results
+    #### v0.1.0:
+    - Initial release of the Mentor API
+    - Advanced sorting and filtering capabilities
+    - Cross-resource search endpoint
+    - Example responses for key endpoints
+    - Basic CRUD operations for repositories, branches, and snapshots
+    - System-generated reports, issues, scores, and insights
+
+servers:
+  - url: http://merly-brdige:8080/api/v1
+  - url: http://localhost:8080/api/v1
+  - url: http://localhost:4201/api/v1
+
+paths:
+  /auth/login:
+    post:
+      security: []
+      summary: Authenticate a user
+      description: |
+        This endpoint authenticates a user and returns a JWT access token and a refresh token.
+        The access token should be used for subsequent API calls in the Authorization header.
+        The refresh token can be used to obtain a new access token when the current one expires.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+        required: true
+      responses:
+        "200":
+          description: Successful authentication
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                  refresh_token:
+                    type: string
+
+  /auth/token:
+    post:
+      security: []
+      summary: Generate a new access token using refresh token
+      description: |
+        Use this endpoint to obtain a new access token when the current one expires.
+        This helps maintain a seamless user experience without requiring frequent logins.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token:
+                  type: string
+        required: true
+      responses:
+        "200":
+          description: New access token generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+
+  /search:
+    get:
+      security:
+      - BearerAuth: []
+      summary: Search across multiple resources
+      description: |
+        Performs a search across repositories, branches, snapshots, and issues.
+        Use the 'q' parameter to specify the search query, and 'type' to limit the search to specific resources.
+      parameters:
+      - $ref: '#/components/parameters/PageParam'
+      - $ref: '#/components/parameters/PerPageParam'
+      - name: q
+        in: query
+        description: Search query string
+        required: true
+        schema:
+          type: string
+      - name: type
+        in: query
+        description: Limit search to a specific resource type
+        schema:
+          type: string
+          enum: [repository, branch, snapshot, issue]
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResults'
+
+  /users:
+    get:
+      security:
+      - BearerAuth: []
+      summary: List all users
+      description: |
+        Retrieves a list of all users in the system.
+        The list includes basic information about each user such as id, username, email, and role.
+      parameters:
+      - $ref: '#/components/parameters/PageParam'
+      - $ref: '#/components/parameters/PerPageParam'
+      - $ref: '#/components/parameters/SortParam'
+      - $ref: '#/components/parameters/FilterParam'
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedResponse'
+              example:
+                data:
+                - id: 1
+                  name: John Doe
+                  email: john@example.com
+                  role: Developer
+                - id: 2
+                  name: Jane Smith
+                  email: jane@example.com
+                  role: Admin
+                pagination:
+                  total_items: 50
+                  total_pages: 3
+                  current_page: 1
+                  per_page: 20
+
+  /repositories:
+    get:
+      security:
+        - BearerAuth: []
+      summary: List all repositories
+      description: |
+        Retrieves a list of all repositories that have been added to the system for analysis.
+        This includes repositories across all users, so appropriate filtering may be necessary.
+      parameters:
+      - $ref: '#/components/parameters/PageParam'
+      - $ref: '#/components/parameters/PerPageParam'
+      - $ref: '#/components/parameters/SortParam'
+      - $ref: '#/components/parameters/FilterParam'
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedResponse'
+              example:
+                data:
+                - id: 1
+                  name: awesome-project
+                  gitUrl: https://github.com/user/awesome-project.git
+                  defaultBranch: main
+                - id: 2
+                  name: legacy-app
+                  gitUrl: https://github.com/company/legacy-app.git
+                  defaultBranch: master
+                pagination:
+                  total_items: 30
+                  total_pages: 2
+                  current_page: 1
+                  per_page: 20
+    post:
+      security:
+      - BearerAuth: []
+      summary: Add a new repository for analysis
+      description: |
+        Adds a new git repository to the system for analysis. This doesn't create a new repository,
+        but rather points the system to an existing git repository for tracking and analysis.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewRepository'
+        required: true
+      responses:
+        "201":
+          description: Repository added successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Repository'
+
+  /repositories/{repositoryId}:
+    get:
+      security:
+      - BearerAuth: []
+      summary: Retrieve specific repository details
+      description: |
+        Fetches detailed information about a specific repository.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Repository'
+    put:
+      security:
+      - BearerAuth: []
+      summary: Update repository details
+      description: |
+        Updates the details of a specific repository.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRepository'
+        required: true
+      responses:
+        "200":
+          description: Repository updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Repository'
+    delete:
+      security:
+      - BearerAuth: []
+      summary: Remove a repository from analysis
+      description: |
+        Removes a repository from the analysis system. This does not delete the actual git repository,
+        but rather stops tracking and analyzing it. All associated data will also be removed from the system.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        "204":
+          description: Repository removed successfully
+
+  /repositories/{repositoryId}/branches:
+    get:
+      security:
+      - BearerAuth: []
+      summary: List all branches for a repository
+      description: |
+        Retrieves a list of all branches for a specific repository that have been added to the system
+        for analysis.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - $ref: '#/components/parameters/PageParam'
+      - $ref: '#/components/parameters/PerPageParam'
+      - $ref: '#/components/parameters/SortParam'
+      - $ref: '#/components/parameters/FilterParam'
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedResponse'
+              example:
+                data:
+                - id: 1
+                  name: main
+                  lastCommitSha: abc123
+                - id: 2
+                  name: feature/new-ui
+                  lastCommitSha: def456
+                pagination:
+                  total_items: 5
+                  total_pages: 1
+                  current_page: 1
+                  per_page: 20
+    post:
+      security:
+      - BearerAuth: []
+      summary: Add a branch for analysis
+      description: |
+        Adds a specific branch from the repository for analysis.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewBranch'
+        required: true
+      responses:
+        "201":
+          description: Branch added for analysis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Branch'
+
+  /repositories/{repositoryId}/branches/{branchId}/snapshots:
+    get:
+      security:
+      - BearerAuth: []
+      summary: List all snapshots for a branch
+      description: |
+        Retrieves a list of all snapshots that have been created for a specific branch.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: languageId
+        in: query
+        schema:
+          type: integer
+      - $ref: '#/components/parameters/PageParam'
+      - $ref: '#/components/parameters/PerPageParam'
+      - $ref: '#/components/parameters/SortParam'
+      - $ref: '#/components/parameters/FilterParam'
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedResponse'
+              example:
+                data:
+                - id: 1
+                  branchId: 1
+                  pointTime: 2023-06-15T10:00:00Z
+                  pointRef: abc123
+                  languageId: 1
+                  contentFiles: 123
+                  contentSize: 567890
+                  linesOfCode: 456789
+                  numberAnomalies: 12
+                  numberNotables: 321
+                  numberExpressions: 23456
+                  score: 678
+                - id: 2
+                  branchId: 1
+                  pointTime: 2023-06-16T11:30:00Z
+                  pointRef: def456
+                  languageId: 1
+                  contentFiles: 124
+                  contentSize: 567891
+                  linesOfCode: 456790
+                  numberAnomalies: 12
+                  numberNotables: 322
+                  numberExpressions: 23457
+                  score: 653
+                pagination:
+                  total_items: 10
+                  total_pages: 1
+                  current_page: 1
+                  per_page: 20
+    post:
+      security:
+      - BearerAuth: []
+      summary: Create new snapshots for a branch
+      description: |
+        Creates new snapshots for analysis on a specific branch. You can specify either the number
+        of snapshots to create or a maximum time duration between snapshots.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewSnapshots'
+        required: true
+      responses:
+        "201":
+          description: Snapshots created successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Snapshot'
+
+  /repositories/{repositoryId}/issues:
+    get:
+      security:
+      - BearerAuth: []
+      summary: List all issues for a repository
+      description: |
+        Retrieves a list of all issues for a specific repository.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - $ref: '#/components/parameters/PageParam'
+      - $ref: '#/components/parameters/PerPageParam'
+      - $ref: '#/components/parameters/SortParam'
+      - $ref: '#/components/parameters/FilterParam'
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedResponse'
+              example:
+                data:
+                - id: 1
+                  title: Potential null pointer dereference
+                  severity: high
+                  status: open
+                  reportedAt: 2023-06-15T10:00:00Z
+                - id: 2
+                  title: Unused import statement
+                  severity: low
+                  status: resolved
+                  reportedAt: 2023-06-16T11:30:00Z
+                pagination:
+                  total_items: 15
+                  total_pages: 1
+                  current_page: 1
+                  per_page: 20
+
+  /repositories/{repositoryId}/issues/{issueId}:
+    get:
+      security:
+      - BearerAuth: []
+      summary: Get details of a specific issue
+      description: |
+        Retrieves detailed information about a specific issue.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: issueId
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Issue'
+    put:
+      security:
+      - BearerAuth: []
+      summary: Update an issue
+      description: |
+        Updates the details of a specific issue.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: issueId
+        in: path
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateIssue'
+        required: true
+      responses:
+        "200":
+          description: Issue updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Issue'
+
+  /repositories/{repositoryId}/analysis-reports:
+    get:
+      security:
+      - BearerAuth: []
+      summary: List analysis reports for a repository
+      description: |
+        Retrieves a list of analysis reports for a specific repository.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - $ref: '#/components/parameters/PageParam'
+      - $ref: '#/components/parameters/PerPageParam'
+      - $ref: '#/components/parameters/SortParam'
+      - $ref: '#/components/parameters/FilterParam'
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedResponse'
+              example:
+                data:
+                - id: 1
+                  title: Code Quality Report - June 2023
+                - id: 2
+                  title: Security Analysis - Q2 2023
+                pagination:
+                  total_items: 5
+                  total_pages: 1
+                  current_page: 1
+                  per_page: 20
+
+  /repositories/{repositoryId}/languages:
+    get:
+      security:
+      - BearerAuth: []
+      summary: List all programming languages detected in the latest snapshot of the default branch
+      description: |
+        Retrieves a list of programming languages detected in the repository, based on the latest
+        snapshot of the default branch. Each language entry includes the language name and the
+        percentage of code written in that language.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BranchLanguage'
+
+  /repositories/{repositoryId}/branches/{branchId}/reports:
+    get:
+      security:
+      - BearerAuth: []
+      summary: Get reports for a specific branch (system-generated)
+      description: |
+        Retrieves the system-generated reports for a specific branch. These reports provide an
+        overview of the analysis results, potentially including code quality metrics, potential
+        issues, and other relevant information. The content and structure of these reports are
+        determined by the system's analysis capabilities.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AnalysisReport'
+
+  /repositories/{repositoryId}/branches/{branchId}/snapshots/{snapId}/issues:
+    get:
+      security:
+      - BearerAuth: []
+      summary: Get issues for a specific branch (system-generated)
+      description: |
+        Fetches a list of issues detected by the system for a specific branch. These issues are
+        automatically identified during the analysis process and may include code smells, potential
+        bugs, security vulnerabilities, or other areas for improvement.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: snapId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: languageId
+        in: query
+        schema:
+          type: integer
+      - $ref: '#/components/parameters/PageParam'
+      - $ref: '#/components/parameters/PerPageParam'
+      - $ref: '#/components/parameters/SortParam'
+      - $ref: '#/components/parameters/FilterParam'
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedResponse'
+              example:
+                data:
+                - id: 1
+                  title: Potential null pointer dereference
+                - id: 2
+                  title: Unused import statement
+                pagination:
+                  total_items: 15
+                  total_pages: 1
+                  current_page: 1
+                  per_page: 20
+
+  /repositories/{repositoryId}/branches/{branchId}/snapshots/{snapId}/issues/{issueId}:
+    put:
+      security:
+      - BearerAuth: []
+      summary: Update an issue (user can modify action, comment, severity, and assigned user)
+      description: |
+        Allows users to update specific fields of an issue. Users can modify the action to be taken,
+        add or update comments, change the severity level, and assign or reassign the issue to a user.
+        This enables collaborative work on addressing and tracking issues identified by the system.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: snapId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: issueId
+        in: path
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateIssue'
+        required: true
+      responses:
+        "200":
+          description: Issue updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Issue'
+
+  /ci/analyze:
+    post:
+      security:
+      - CIAuth: []
+      summary: Trigger a CI/CD analysis
+      description: Initiates an analysis for a specific commit in the context of CI/CD integration.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CIAnalysisRequest'
+        required: true
+      responses:
+        "202":
+          description: Analysis initiated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CIAnalysisInitiatedResponse'
+        "400":
+          description: Invalid request
+        "401":
+          description: Unauthorized
+        "404":
+          description: Repository not found
+
+  /ci/results:
+    get:
+      security:
+      - CIAuth: []
+      summary: Retrieve CI/CD analysis results
+      description: Fetches the results of a previously initiated CI/CD analysis.
+      parameters:
+      - name: analysis_id
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: Analysis results retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CIAnalysisResults'
+        "401":
+          description: Unauthorized
+        "404":
+          description: Analysis not found
+
+components:
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+      description: Page number for pagination
+    PerPageParam:
+      name: per_page
+      in: query
+      schema:
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 100
+      description: Number of items per page (max 100)
+    SortParam:
+      name: sort
+      in: query
+      schema:
+        type: string
+      description: |
+        Comma-separated list of fields to sort by.
+        Prefix a field with '-' for descending order.
+        Example: sort=name,-created_at
+    FilterParam:
+      in: query
+      name: filter
+      schema:
+        type: string
+      description: |
+        JSON-encoded filter conditions.
+        Example: filter={"severity":["high","critical"],"status":"open"}
+
+  schemas:
+    PaginatedResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+        pagination:
+          $ref: '#/components/schemas/PaginationInfo'
+
+    PaginationInfo:
+      type: object
+      properties:
+        total_items:
+          type: integer
+        total_pages:
+          type: integer
+        current_page:
+          type: integer
+        per_page:
+          type: integer
+
+    SearchResults:
+      type: object
+      properties:
+        repositories:
+          type: array
+          items:
+            $ref: '#/components/schemas/Repository'
+        branches:
+          type: array
+          items:
+            $ref: '#/components/schemas/Branch'
+        snapshots:
+          type: array
+          items:
+            $ref: '#/components/schemas/Snapshot'
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/Issue'
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum: [Developer, Lead, Admin, Owner, Demo]
+
+    Repository:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        gitUrl:
+          type: string
+        defaultBranch:
+          type: string
+
+    NewRepository:
+      required:
+      - name
+      - gitUrl
+      type: object
+      properties:
+        name:
+          type: string
+        gitUrl:
+          type: string
+        description:
+          type: string
+
+    UpdateRepository:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        defaultBranch:
+          type: string
+    
+    Language:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+
+    Branch:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        lastCommitSha:
+          type: string
+        languages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Language'
+
+    NewBranch:
+      required:
+      - name
+      type: object
+      properties:
+        name:
+          type: string
+
+    BranchLanguage:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        branchId:
+          type: integer
+        languageId:
+          type: integer
+        percentage:
+          type: number
+          format: float
+        lifetimeMentorScore:
+          type: number
+          nullable: true
+          format: float
+        lastScore:
+          type: number
+          nullable: true
+          format: float
+        lastNumberIssues:
+          type: integer
+          nullable: true
+        lastAnalyzedAt:
+          type: string
+          nullable: true
+          format: date-time
+
+    Snapshot:
+      type: object
+      properties:
+        id:
+          type: integer
+        branchId:
+          type: integer
+        pointTime:
+          type: string
+          format: date-time
+        pointRef:
+          type: string
+        languages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Language'
+
+    NewSnapshots:
+      required:
+      - method
+      - value
+      type: object
+      properties:
+        method:
+          type: string
+          enum: [count, duration, single]
+        value:
+          type: integer
+        ref:
+          type: string
+
+    LanguageSnapshot:
+      type: object
+      properties:
+        id:
+          type: integer
+        snapshotId:
+          type: integer
+        languageId:
+          type: integer
+        contentFiles:
+          type: integer
+        contentSize:
+          type: integer
+        linesOfCode:
+          type: integer
+        numberAnomalies:
+          type: integer
+        numberNotables:
+          type: integer
+        numberExpressions:
+          type: integer
+        score:
+          type: number
+          format: float
+
+    AnalysisReport:
+      type: object
+      properties:
+        id:
+          type: integer
+        repoId:
+          type: integer
+        snapshotId:
+          type: integer
+        title:
+          type: string
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    Issue:
+      type: object
+      properties:
+        id:
+          type: string
+        repoId:
+          type: integer
+        expressionInstanceId:
+          type: integer
+        snippet:
+          type: string
+        priority:
+          type: string
+          enum: [critical, high, medium, low]
+        file:
+          type: string
+        file_ln:
+          type: integer
+        action:
+          type: string
+          nullable: true
+          enum: [ignore, investigate, simplify, fix, potential_crash, potential_security_issue]
+        categoryId:
+          type: integer
+          nullable: true
+        comment:
+          type: string
+        reporterId:
+          type: integer
+          nullable: true
+        reportedAt:
+          type: string
+          nullable: true
+          format: date-time
+        assigneeId:
+          type: integer
+          nullable: true
+        assignedAt:
+          type: string
+          nullable: true
+          format: date-time
+        updatedAt:
+          type: string
+          nullable: true
+          format: date-time
+
+    UpdateIssue:
+      type: object
+      properties:
+        comment:
+          type: string
+        categoryId:
+          type: integer
+          nullable: true
+        assigneeId:
+          type: integer
+          nullable: true
+
+    CIAnalysisRequest:
+      required:
+      - repoId
+      - commit_sha
+      - branch
+      type: object
+      properties:
+        repoId:
+          type: integer
+        commit_sha:
+          type: string
+        branch:
+          type: string
+        analysis_depth:
+          type: string
+          enum: [quick, full]
+          default: quick
+
+    CIAnalysisInitiatedResponse:
+      type: object
+      properties:
+        analysis_id:
+          type: string
+        status:
+          type: string
+          enum: [in_progress, queued]
+        estimated_completion_time:
+          type: string
+          format: date-time
+
+    CIAnalysisResults:
+      type: object
+      properties:
+        analysis_id:
+          type: string
+        status:
+          type: string
+          enum: [in_progress, completed, failed]
+        repository_id:
+          type: integer
+        commit_sha:
+          type: string
+        branch:
+          type: string
+        analysis_depth:
+          type: string
+          enum: [quick, full]
+        completed_at:
+          type: string
+          format: date-time
+        summary:
+          type: object
+          properties:
+            total_issues:
+              type: integer
+            critical_issues:
+              type: integer
+            high_issues:
+              type: integer
+            medium_issues:
+              type: integer
+            low_issues:
+              type: integer
+            score:
+              type: number
+              format: float
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/CIAnalysisIssue'
+        pass_fail_status:
+          type: string
+          enum: [pass, fail]
+        failure_reason:
+          type: string
+
+    CIAnalysisIssue:
+      type: object
+      properties:
+        id:
+          type: string
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        description:
+          type: string
+        file_path:
+          type: string
+        line_number:
+          type: integer
+        link:
+          type: string
+          format: uri
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: JWT token obtained from /auth/login or /auth/token
+
+    CIAuth:
+      type: http
+      scheme: bearer
+      description: CI-specific authentication token
+
+security:
+  - BearerAuth: []
+  - CIAuth: []
