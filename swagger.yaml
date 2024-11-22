@@ -103,36 +103,36 @@ paths:
                   access_token:
                     type: string
 
-  /search:
-    get:
-      security:
-      - BearerAuth: []
-      summary: Search across multiple resources
-      description: |
-        Performs a search across repositories, branches, snapshots, and issues.
-        Use the 'q' parameter to specify the search query, and 'type' to limit the search to specific resources.
-      parameters:
-      - $ref: '#/components/parameters/PageParam'
-      - $ref: '#/components/parameters/PerPageParam'
-      - name: q
-        in: query
-        description: Search query string
-        required: true
-        schema:
-          type: string
-      - name: type
-        in: query
-        description: Limit search to a specific resource type
-        schema:
-          type: string
-          enum: [repository, branch, snapshot, issue]
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SearchResults'
+#  /search:
+#    get:
+#      security:
+#      - BearerAuth: []
+#      summary: Search across multiple resources
+#      description: |
+#        Performs a search across repositories, branches, snapshots, and issues.
+#        Use the 'q' parameter to specify the search query, and 'type' to limit the search to specific resources.
+#      parameters:
+#      - $ref: '#/components/parameters/PageParam'
+#      - $ref: '#/components/parameters/PerPageParam'
+#      - name: q
+#        in: query
+#        description: Search query string
+#        required: true
+#        schema:
+#          type: string
+#      - name: type
+#        in: query
+#        description: Limit search to a specific resource type
+#        schema:
+#          type: string
+#          enum: [repository, branch, snapshot, issue]
+#      responses:
+#        "200":
+#          description: Successful response
+#          content:
+#            application/json:
+#              schema:
+#                $ref: '#/components/schemas/SearchResults'
 
   /users:
     get:
@@ -326,31 +326,31 @@ paths:
                   total_pages: 1
                   current_page: 1
                   per_page: 20
-    post:
-      security:
-      - BearerAuth: []
-      summary: Add a branch for analysis
-      description: |
-        Adds a specific branch from the repository for analysis.
-      parameters:
-      - name: repositoryId
-        in: path
-        required: true
-        schema:
-          type: integer
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/NewBranch'
-        required: true
-      responses:
-        "201":
-          description: Branch added for analysis
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Branch'
+#    post:
+#      security:
+#      - BearerAuth: []
+#      summary: Add a branch for analysis
+#      description: |
+#        Adds a specific branch from the repository for analysis.
+#      parameters:
+#      - name: repositoryId
+#        in: path
+#        required: true
+#        schema:
+#          type: integer
+#      requestBody:
+#        content:
+#          application/json:
+#            schema:
+#              $ref: '#/components/schemas/NewBranch'
+#        required: true
+#      responses:
+#        "201":
+#          description: Branch added for analysis
+#          content:
+#            application/json:
+#              schema:
+#                $ref: '#/components/schemas/Branch'
 
   /repositories/{repositoryId}/branches/{branchId}/snapshots:
     get:
@@ -509,7 +509,7 @@ paths:
         in: path
         required: true
         schema:
-          type: integer
+          type: string
       responses:
         "200":
           description: Successful response
@@ -517,36 +517,36 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Issue'
-    put:
-      security:
-      - BearerAuth: []
-      summary: Update an issue
-      description: |
-        Updates the details of a specific issue.
-      parameters:
-      - name: repositoryId
-        in: path
-        required: true
-        schema:
-          type: integer
-      - name: issueId
-        in: path
-        required: true
-        schema:
-          type: integer
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateIssue'
-        required: true
-      responses:
-        "200":
-          description: Issue updated successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Issue'
+#    put:
+#      security:
+#      - BearerAuth: []
+#      summary: Update an issue
+#      description: |
+#        Updates the details of a specific issue.
+#      parameters:
+#      - name: repositoryId
+#        in: path
+#        required: true
+#        schema:
+#          type: integer
+#      - name: issueId
+#        in: path
+#        required: true
+#        schema:
+#          type: string
+#      requestBody:
+#        content:
+#          application/json:
+#            schema:
+#              $ref: '#/components/schemas/UpdateIssue'
+#        required: true
+#      responses:
+#        "200":
+#          description: Issue updated successfully
+#          content:
+#            application/json:
+#              schema:
+#                $ref: '#/components/schemas/Issue'
 
   /repositories/{repositoryId}/analysis-reports:
     get:
@@ -692,99 +692,55 @@ paths:
                   current_page: 1
                   per_page: 20
 
-  /repositories/{repositoryId}/branches/{branchId}/snapshots/{snapId}/issues/{issueId}:
-    put:
-      security:
-      - BearerAuth: []
-      summary: Update an issue (user can modify action, comment, severity, and assigned user)
-      description: |
-        Allows users to update specific fields of an issue. Users can modify the action to be taken,
-        add or update comments, change the severity level, and assign or reassign the issue to a user.
-        This enables collaborative work on addressing and tracking issues identified by the system.
-      parameters:
-      - name: repositoryId
-        in: path
-        required: true
-        schema:
-          type: integer
-      - name: branchId
-        in: path
-        required: true
-        schema:
-          type: integer
-      - name: snapId
-        in: path
-        required: true
-        schema:
-          type: integer
-      - name: issueId
-        in: path
-        required: true
-        schema:
-          type: integer
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateIssue'
-        required: true
-      responses:
-        "200":
-          description: Issue updated successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Issue'
-
-  /ci/analyze:
-    post:
-      security:
-      - CIAuth: []
-      summary: Trigger a CI/CD analysis
-      description: Initiates an analysis for a specific commit in the context of CI/CD integration.
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CIAnalysisRequest'
-        required: true
-      responses:
-        "202":
-          description: Analysis initiated successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CIAnalysisInitiatedResponse'
-        "400":
-          description: Invalid request
-        "401":
-          description: Unauthorized
-        "404":
-          description: Repository not found
-
-  /ci/results:
-    get:
-      security:
-      - CIAuth: []
-      summary: Retrieve CI/CD analysis results
-      description: Fetches the results of a previously initiated CI/CD analysis.
-      parameters:
-      - name: analysis_id
-        in: query
-        required: true
-        schema:
-          type: string
-      responses:
-        "200":
-          description: Analysis results retrieved successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CIAnalysisResults'
-        "401":
-          description: Unauthorized
-        "404":
-          description: Analysis not found
+#  /ci/analyze:
+#    post:
+#      security:
+#      - CIAuth: []
+#      summary: Trigger a CI/CD analysis
+#      description: Initiates an analysis for a specific commit in the context of CI/CD integration.
+#      requestBody:
+#        content:
+#          application/json:
+#            schema:
+#              $ref: '#/components/schemas/CIAnalysisRequest'
+#        required: true
+#      responses:
+#        "202":
+#          description: Analysis initiated successfully
+#          content:
+#            application/json:
+#              schema:
+#                $ref: '#/components/schemas/CIAnalysisInitiatedResponse'
+#        "400":
+#          description: Invalid request
+#        "401":
+#          description: Unauthorized
+#        "404":
+#          description: Repository not found
+#
+#  /ci/results:
+#    get:
+#      security:
+#      - CIAuth: []
+#      summary: Retrieve CI/CD analysis results
+#      description: Fetches the results of a previously initiated CI/CD analysis.
+#      parameters:
+#      - name: analysis_id
+#        in: query
+#        required: true
+#        schema:
+#          type: string
+#      responses:
+#        "200":
+#          description: Analysis results retrieved successfully
+#          content:
+#            application/json:
+#              schema:
+#                $ref: '#/components/schemas/CIAnalysisResults'
+#        "401":
+#          description: Unauthorized
+#        "404":
+#          description: Analysis not found
 
 components:
   parameters:
@@ -937,6 +893,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Language'
+        lifetimeMentorScore:
+          type: integer
 
     NewBranch:
       required:
@@ -992,6 +950,20 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Language'
+        contentFiles:
+          type: integer
+        contentSize:
+          type: integer
+        linesOfCode:
+          type: integer
+        numberAnomalies:
+          type: integer
+        numberNotables:
+          type: integer
+        numberExpressions:
+          type: integer
+        score:
+          type: integer
 
     NewSnapshots:
       required:
