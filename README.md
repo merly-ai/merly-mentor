@@ -137,7 +137,7 @@ volumes:
 
    ```bash
    export REGISTRATION_KEY="your_registration_key"
-   curl -s https://raw.githubusercontent.com/merly-ai/merly-mentor/refs/heads/main/kubernetes/deploy.yaml | envsubst | kubectl apply -f -
+   curl -s https://github.com/merly-ai/merly-mentor/releases/download/v1.0.20/deploy.yaml | envsubst | kubectl apply -f -
    ```
 
 #### Using Helm Charts
