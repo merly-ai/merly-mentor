@@ -25,6 +25,9 @@ jobs:
       - name: Generate Docker Compose
         run: make generate-docker-compose
 
+      - name: Generate Kubernetes Deploy
+        run: make generate-kube-deploy
+
       - name: Prepare install script
         run: |
           sed -e "s/\${RELEASE_TAG_VERSION}/${TAG_NAME}/g" \

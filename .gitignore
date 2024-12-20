@@ -2,3 +2,4 @@
 docker-compose*.*ml
 mentor-data
 .mentor
+kubernetes/deploy.yaml

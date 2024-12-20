@@ -15,7 +15,7 @@ spec:
       initContainers:
         # Init container for merly-models
         - name: merly-models-init
-          image: merlyai/merly-mentor-models:v2.0.0
+          image: merlyai/merly-mentor-models:${MODELS_TAG}
           volumeMounts:
             - mountPath: /app/.models-copy
               name: models-data
@@ -25,7 +25,7 @@ spec:
 
         # Init container for merly-assets
         - name: merly-assets-init
-          image: merlyai/merly-mentor-assets:v1.0.0
+          image: merlyai/merly-mentor-assets:${ASSETS_TAG}
           volumeMounts:
             - mountPath: /app/.assets-copy
               name: assets-data
@@ -35,7 +35,7 @@ spec:
 
       containers:
         - name: merly-mentor
-          image: merlyai/merly-mentor-daemon:v0.4.19
+          image: merlyai/merly-mentor-daemon:${MENTOR_TAG}
           ports:
             - containerPort: 4200
           env:
@@ -102,7 +102,7 @@ spec:
     spec:
       containers:
         - name: merly-ui
-          image: merlyai/merly-mentor-ui:v0.1.0
+          image: merlyai/merly-mentor-ui:${UI_TAG}
           ports:
             - containerPort: 3000
           env:
@@ -143,7 +143,7 @@ spec:
     spec:
       containers:
         - name: merly-bridge
-          image: merlyai/merly-mentor-bridge:v0.1.0
+          image: merlyai/merly-mentor-bridge:${BRIDGE_TAG}
           ports:
             - containerPort: 8080
           env:
