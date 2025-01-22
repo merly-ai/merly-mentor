@@ -58,7 +58,7 @@ jobs:
       - name: Install RPM Build Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y rpm rpm-build
+          sudo apt-get install -y rpm
 
       # Set up RPM build environment
       - name: Set Up RPM Build Environment
