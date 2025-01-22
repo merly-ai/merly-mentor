@@ -1,0 +1,69 @@
+name: RPM Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_version:
+        description: "Specify the application version"
+        required: true
+        default: "v1.0.0"
+      build_env:
+        description: "Select the build environment"
+        required: true
+        default: "Test"
+        type: choice
+        options:
+          - Staging
+          - Test
+          - Release
+          - Pre-Release
+          - WIP-Demo
+      registration_key:
+        description: "Enter the registration key"
+        required: true
+
+jobs:
+  RPM_Build:
+    name: RPM Build
+    runs-on: ubuntu-24.04
+    env:
+      APP_NAME:         merly-mentor
+      APP_VERSION:      ${{ github.event.inputs.app_version }}
+      REGISTRATION_KEY: ${{ github.event.inputs.registration_key }}
+      BUILD_ENV:        ${{ github.event.inputs.build_env }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      - name: Prepare Artifacts
+        run: |
+          mkdir -p ${{ github.workspace }}/${APP_NAME}-${APP_VERSION}
+          cd ${{ github.workspace }}/${APP_NAME}-${APP_VERSION}
+          chmod +x ${{ github.workspace }}/Docker/scripts/entrypoint.sh
+          bash ${{ github.workspace }}/Docker/scripts/prepare-mentor-container-assets.sh Redhat ${BUILD_ENV}
+          chmod +x ${{ github.workspace }}/Docker/scripts/registration.sh
+          bash ${{ github.workspace }}/Docker/scripts/registration.sh ${REGISTRATION_KEY}
+          cd ${{ github.workspace }}/${APP_NAME}-${APP_VERSION}/UI
+          npm install --omit=dev --ignore-scripts
+          cd ${{ github.workspace }}
+          tar -czf ${APP_NAME}-${APP_VERSION}.tar.gz ${APP_NAME}-${APP_VERSION}
+
+      - name: Prepare Build Spec File
+        run: |
+          echo "Version:        ${APP_VERSION}" | cat - merly-mentor.spec > temp.spec && mv temp.spec merly-mentor.spec
+          echo "Name:           ${APP_NAME}" | cat - merly-mentor.spec > temp.spec && mv temp.spec merly-mentor.spec
+
+
+      - name: build RPM package
+        id: rpm
+        uses: naveenrajm7/rpmbuild@master
+        with:
+          spec_file: "merly-mentor.spec"
+  
+      - name: Upload artifact
+        uses: actions/upload-artifact@v1.0.0
+        with:
+          name: Merly Mentor RPM
+          path: ${{ steps.rpm.outputs.rpm_dir_path }}
+
+      
