@@ -30,7 +30,7 @@ mkdir -p %{buildroot}/opt/merly-mentor
 mkdir -p %{buildroot}/etc/systemd/system
 
 # Copy application files to /opt/merly-mentor
-cp -r MerlyMentor MentorBridge UI scripts .models .assets .mentor %{buildroot}/opt/merly-mentor
+cp -r MerlyMentor MentorBridge UI .models .assets .mentor %{buildroot}/opt/merly-mentor
 
 # Adjust file permissions
 chmod -R 755 %{buildroot}/opt/merly-mentor
