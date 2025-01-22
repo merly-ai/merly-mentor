@@ -3,7 +3,7 @@ Summary:        Merly Mentor code quality and security analysis tool
 
 License:        Proprietary
 URL:            https://github.com/merly-ai/merly-mentor
-Source0:        ./%{name}-%{version}.tar.gz
+Source0:        %{name}-%{version}.tar.gz
 
 # Runtime dependencies
 Requires:       nodejs >= 20.0
@@ -94,6 +94,10 @@ systemctl daemon-reload
 systemctl enable mentor-ui.service
 systemctl enable mentor-bridge.service
 systemctl enable mentor-daemon.service
+
+systemctl start mentor-ui.service
+systemctl start mentor-bridge.service
+systemctl start mentor-daemon.service
 
 
 %files
