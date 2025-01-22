@@ -44,6 +44,7 @@ jobs:
           chmod +x ${{ github.workspace }}/Docker/scripts/registration.sh
           bash ${{ github.workspace }}/Docker/scripts/registration.sh ${REGISTRATION_KEY}
           cd ${{ github.workspace }}/${APP_NAME}-${APP_VERSION}/UI
+          sed -i 's/"start": "next start"/"start": "next start -p 80"/' package.json
           npm install --omit=dev --ignore-scripts
           cd ${{ github.workspace }}
           tar -czf ${APP_NAME}-${APP_VERSION}.tar.gz ${APP_NAME}-${APP_VERSION}
@@ -79,7 +80,7 @@ jobs:
       # Build the RPM
       - name: Build RPM
         run: |
-          rpmbuild -ba ~/rpmbuild/SPECS/merly-mentor.spec
+          rpmbuild -ba ~/rpmbuild/SPECS/merly-mentor.spec   
 
       # Upload the built RPM as an artifact
       - name: Upload RPM Artifact
