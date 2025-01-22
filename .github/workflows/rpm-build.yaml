@@ -56,7 +56,7 @@ jobs:
 
       - name: build RPM package
         id: rpm
-        uses: naveenrajm7/rpmbuild@V1.0.0
+        uses: naveenrajm7/rpmbuild@v1.0.0
         with:
           spec_file: "merly-mentor.spec"
   
