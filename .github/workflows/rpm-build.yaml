@@ -54,16 +54,36 @@ jobs:
           echo "Name:           ${APP_NAME}" | cat - merly-mentor.spec > temp.spec && mv temp.spec merly-mentor.spec
 
 
-      - name: build RPM package
-        id: rpm
-        uses: naveenrajm7/rpmbuild@v1.0.0
-        with:
-          spec_file: "merly-mentor.spec"
-  
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4.6.0
-        with:
-          name: Merly Mentor RPM
-          path: ${{ steps.rpm.outputs.rpm_dir_path }}
+      # Install dependencies for RPM building
+      - name: Install RPM Build Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm rpm-build
 
-      
+      # Set up RPM build environment
+      - name: Set Up RPM Build Environment
+        run: |
+          mkdir -p ~/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+          echo '%_topdir %(echo $HOME)/rpmbuild' > ~/.rpmmacros
+
+      # Copy files to SOURCES directory
+      - name: Copy Sources
+        run: |
+          cp ${APP_NAME}-${APP_VERSION}.tar.gz ~/rpmbuild/SOURCES/
+
+      # Add your SPEC file
+      - name: Add SPEC File
+        run: |
+          cp merly-mentor.spec ~/rpmbuild/SPECS/
+
+      # Build the RPM
+      - name: Build RPM
+        run: |
+          rpmbuild -ba ~/rpmbuild/SPECS/merly-mentor.spec
+
+      # Upload the built RPM as an artifact
+      - name: Upload RPM Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: built-rpm
+          path: ~/rpmbuild/RPMS/
