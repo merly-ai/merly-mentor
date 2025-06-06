@@ -31,8 +31,7 @@ fi
 # Run Merly Mentor Daemon and prefix logs with "DAEMON"
 ./MerlyMentor -N daemon --stdout &
 
-# Run Merly Mentor Bridge and prefix logs with "BRIDGE"
-./MentorBridge &
+
 
 # Run Merly Mentor UI and prefix logs with "UI"
 cd UI
