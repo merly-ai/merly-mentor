@@ -103,36 +103,99 @@ paths:
                   access_token:
                     type: string
 
-#  /search:
-#    get:
-#      security:
-#      - BearerAuth: []
-#      summary: Search across multiple resources
-#      description: |
-#        Performs a search across repositories, branches, snapshots, and issues.
-#        Use the 'q' parameter to specify the search query, and 'type' to limit the search to specific resources.
-#      parameters:
-#      - $ref: '#/components/parameters/PageParam'
-#      - $ref: '#/components/parameters/PerPageParam'
-#      - name: q
-#        in: query
-#        description: Search query string
-#        required: true
-#        schema:
-#          type: string
-#      - name: type
-#        in: query
-#        description: Limit search to a specific resource type
-#        schema:
-#          type: string
-#          enum: [repository, branch, snapshot, issue]
-#      responses:
-#        "200":
-#          description: Successful response
-#          content:
-#            application/json:
-#              schema:
-#                $ref: '#/components/schemas/SearchResults'
+  /auth/logout:
+    post:
+      security:
+      - BearerAuth: []
+      summary: Logout and invalidate session
+      description: |
+        Logs out the current user and invalidates their session.
+        This endpoint should be called when the user wants to end their session.
+      responses:
+        "200":
+          description: Successfully logged out
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Successfully logged out"
+        "401":
+          description: Unauthorized - invalid or missing token
+
+  /jobs/{jobKey}:
+    get:
+      security:
+      - BearerAuth: []
+      summary: Get job status by job key
+      description: |
+        Retrieves the current status and details of a job using its job key.
+        This endpoint works for all job types (clone, snapshot, analysis, etc.).
+        The job key is typically returned when creating async operations.
+      parameters:
+      - name: jobKey
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The unique job key identifier
+        example: "r-123-rb-456-rbl-789@infer_points"
+      responses:
+        "200":
+          description: Job status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatus'
+        "404":
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Job not found"
+        "401":
+          description: Unauthorized - invalid or missing token
+
+  /search:
+    get:
+      security:
+      - BearerAuth: []
+      summary: Search across multiple resources
+      description: |
+        Performs a search across repositories, branches, snapshots, and issues.
+        Use the 'q' parameter to specify the search query, and 'type' to limit the search to specific resources.
+      parameters:
+      - $ref: '#/components/parameters/PageParam'
+      - $ref: '#/components/parameters/PerPageParam'
+      - name: q
+        in: query
+        description: Search query string
+        required: true
+        schema:
+          type: string
+      - name: type
+        in: query
+        description: Limit search to a specific resource type
+        schema:
+          type: string
+          enum: [repository, branch, snapshot, issue]
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResults'
+        "400":
+          description: Bad request - invalid search parameters
+        "401":
+          description: Unauthorized - invalid or missing token
 
   /users:
     get:
@@ -169,6 +232,303 @@ paths:
                   total_pages: 3
                   current_page: 1
                   per_page: 20
+
+  /users/{userId}:
+    get:
+      security:
+      - BearerAuth: []
+      summary: Get user details
+      description: |
+        Retrieves detailed information about a specific user.
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        "404":
+          description: User not found
+    put:
+      security:
+      - BearerAuth: []
+      summary: Update user profile
+      description: |
+        Updates the profile information for a specific user.
+        Users can only update their own profile unless they have admin privileges.
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUser'
+        required: true
+      responses:
+        "200":
+          description: User updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        "403":
+          description: Forbidden - insufficient privileges
+        "404":
+          description: User not found
+
+  /users/{userId}/password:
+    put:
+      security:
+      - BearerAuth: []
+      summary: Change user password
+      description: |
+        Changes the password for a specific user.
+        Users can only change their own password unless they have admin privileges.
+        Requires the current password for verification.
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePassword'
+        required: true
+      responses:
+        "200":
+          description: Password changed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Password changed successfully"
+        "400":
+          description: Invalid request - current password incorrect or new password doesn't meet requirements
+        "403":
+          description: Forbidden - insufficient privileges
+        "404":
+          description: User not found
+
+  /users/password-reset:
+    post:
+      security: []
+      summary: Request password reset
+      description: |
+        Initiates a password reset process for a user by email.
+        This endpoint is public and does not require authentication.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequest'
+        required: true
+      responses:
+        "200":
+          description: Password reset initiated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Password reset instructions sent to your email"
+        "400":
+          description: Invalid request - email not found or invalid
+        "429":
+          description: Too many requests - rate limited
+
+  /repositories/{repositoryId}/git-credentials:
+    get:
+      security:
+      - BearerAuth: []
+      summary: List git credentials for repository
+      description: |
+        Lists all git credentials for a specific repository.
+        Only users with access to the repository can view its credentials.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: Repository ID
+      responses:
+        "200":
+          description: List of git credentials for the repository
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GitCredentials'
+        "401":
+          description: Unauthorized - invalid or missing token
+        "403":
+          description: Forbidden - insufficient privileges
+        "404":
+          description: Repository not found
+
+    post:
+      security:
+      - BearerAuth: []
+      summary: Create git credentials for repository
+      description: |
+        Creates new git credentials for a specific repository.
+        Only users with access to the repository can create credentials for it.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: Repository ID
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGitCredentials'
+        required: true
+      responses:
+        "201":
+          description: Git credentials created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitCredentials'
+        "400":
+          description: Invalid request - missing required fields
+        "401":
+          description: Unauthorized - invalid or missing token
+        "403":
+          description: Forbidden - insufficient privileges
+        "404":
+          description: Repository not found
+        "409":
+          description: Conflict - credentials already exist for this URL
+
+  /repositories/{repositoryId}/git-credentials/{credentialId}:
+    get:
+      security:
+      - BearerAuth: []
+      summary: Get git credentials for repository
+      description: |
+        Retrieves specific git credentials by ID for a repository.
+        Only users with access to the repository can view its credentials.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: Repository ID
+      - name: credentialId
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: Git credentials ID
+      responses:
+        "200":
+          description: Git credentials found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitCredentials'
+        "401":
+          description: Unauthorized - invalid or missing token
+        "403":
+          description: Forbidden - insufficient privileges
+        "404":
+          description: Repository or git credentials not found
+
+    put:
+      security:
+      - BearerAuth: []
+      summary: Update git credentials for repository
+      description: |
+        Updates existing git credentials for a repository.
+        Only users with access to the repository can update its credentials.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: Repository ID
+      - name: credentialId
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: Git credentials ID
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateGitCredentials'
+        required: true
+      responses:
+        "200":
+          description: Git credentials updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitCredentials'
+        "400":
+          description: Invalid request - missing required fields
+        "401":
+          description: Unauthorized - invalid or missing token
+        "403":
+          description: Forbidden - insufficient privileges
+        "404":
+          description: Repository or git credentials not found
+
+    delete:
+      security:
+      - BearerAuth: []
+      summary: Delete git credentials for repository
+      description: |
+        Deletes git credentials by ID for a repository.
+        Only users with access to the repository can delete its credentials.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: Repository ID
+      - name: credentialId
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: Git credentials ID
+      responses:
+        "204":
+          description: Git credentials deleted successfully
+        "401":
+          description: Unauthorized - invalid or missing token
+        "403":
+          description: Forbidden - insufficient privileges
+        "404":
+          description: Repository or git credentials not found
 
   /repositories:
     get:
@@ -326,6 +686,67 @@ paths:
                   total_pages: 1
                   current_page: 1
                   per_page: 20
+
+  /branches/{branchId}:
+    get:
+      security:
+      - BearerAuth: []
+      summary: Get specific branch details
+      description: |
+        Retrieves detailed information about a specific branch.
+      parameters:
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Branch'
+    put:
+      security:
+      - BearerAuth: []
+      summary: Update branch details
+      description: |
+        Updates the details of a specific branch.
+      parameters:
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBranch'
+        required: true
+      responses:
+        "200":
+          description: Branch updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Branch'
+    delete:
+      security:
+      - BearerAuth: []
+      summary: Delete a branch
+      description: |
+        Deletes a branch from the analysis system. This removes the branch and all associated data.
+      parameters:
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        "204":
+          description: Branch deleted successfully
 #    post:
 #      security:
 #      - BearerAuth: []
@@ -434,6 +855,12 @@ paths:
         required: true
         schema:
           type: integer
+      - name: languageId
+        in: query
+        required: false
+        schema:
+          type: integer
+        description: Language ID to select the specific RBL. If not provided, defaults to the first RBL for the branch.
       requestBody:
         content:
           application/json:
@@ -442,13 +869,29 @@ paths:
         required: true
       responses:
         "201":
-          description: Snapshots created successfully
+          description: Snapshots created successfully (immediate completion)
           content:
             application/json:
               schema:
                 type: array
                 items:
                   $ref: '#/components/schemas/Snapshot'
+        "202":
+          description: Snapshot job initiated, check status with job_key
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_key:
+                    type: string
+                    description: Job key to track snapshot creation progress
+                  status:
+                    type: string
+                    description: Current status (pending, running)
+                  message:
+                    type: string
+                    description: Human-readable status message
 
   /repositories/{repositoryId}/issues:
     get:
@@ -609,6 +1052,67 @@ paths:
                 items:
                   $ref: '#/components/schemas/BranchLanguage'
 
+  /rbls/{rblId}:
+    get:
+      security:
+      - BearerAuth: []
+      summary: Get specific RBL (Repository Branch Language) details
+      description: |
+        Retrieves detailed information about a specific RBL.
+      parameters:
+      - name: rblId
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RBL'
+    put:
+      security:
+      - BearerAuth: []
+      summary: Update RBL details
+      description: |
+        Updates the details of a specific RBL.
+      parameters:
+      - name: rblId
+        in: path
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRBL'
+        required: true
+      responses:
+        "200":
+          description: RBL updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RBL'
+    delete:
+      security:
+      - BearerAuth: []
+      summary: Delete an RBL
+      description: |
+        Deletes an RBL from the analysis system. This removes the RBL and all associated data.
+      parameters:
+      - name: rblId
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        "204":
+          description: RBL deleted successfully
+
   /repositories/{repositoryId}/branches/{branchId}/reports:
     get:
       security:
@@ -691,6 +1195,873 @@ paths:
                   total_pages: 1
                   current_page: 1
                   per_page: 20
+
+  /repositories/{repositoryId}/branches/{branchId}/snapshots/{snapId}/issues/{issueId}:
+    put:
+      security:
+      - BearerAuth: []
+      summary: Update an issue within a snapshot
+      description: |
+        Updates an issue detected within a specific snapshot. This allows users to assign issues,
+        add comments, categorize issues, and perform other management actions.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: Repository ID
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: Branch ID
+      - name: snapId
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: Snapshot ID (RBLPoint_ID)
+      - name: issueId
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Issue ID (expressionInstanceId as integer)
+      - name: languageId
+        in: query
+        required: false
+        schema:
+          type: integer
+        description: Language ID to select the specific RBL. If not provided, defaults to the first RBL for the branch.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateIssue'
+        required: true
+      responses:
+        "200":
+          description: Issue updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Issue'
+        "400":
+          description: Invalid request parameters
+        "401":
+          description: Unauthorized
+        "404":
+          description: Issue not found in the specified snapshot
+
+  /repositories/{repositoryId}/branches/{branchId}/languages/{languageId}/issues:
+    get:
+      security:
+      - BearerAuth: []
+      summary: Get issues for a specific RBL (Repository Branch Language)
+      description: |
+        Fetches a list of issues detected by the system for a specific RBL (Repository Branch Language).
+        This endpoint provides issues for a specific branch and language combination.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: languageId
+        in: path
+        required: true
+        schema:
+          type: integer
+          description: Language enum value (0=C, 1=CPP, 2=PYTHON, etc.)
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 1
+      - name: per_page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+      responses:
+        "200":
+          description: List of issues for the RBL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedResponse'
+              example:
+                data:
+                - id: 1
+                  title: Potential null pointer dereference
+                - id: 2
+                  title: Unused import statement
+                pagination:
+                  total_items: 15
+                  total_pages: 1
+                  current_page: 1
+                  per_page: 20
+        "401":
+          description: Unauthorized
+        "404":
+          description: RBL not found
+
+  /repositories/{repositoryId}/branches/{branchId}/languages/{languageId}/authors:
+    get:
+      security:
+      - BearerAuth: []
+      summary: Get authors for a specific RBL (Repository Branch Language)
+      description: |
+        Retrieves a list of all authors (code contributors) for a specific RBL (Repository Branch Language).
+        Each author includes their names, emails, and contribution scores. This is read-only data
+        derived from git commit history.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: languageId
+        in: path
+        required: true
+        schema:
+          type: integer
+          description: Language enum value (0=C, 1=CPP, 2=PYTHON, etc.)
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 1
+      - name: per_page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+      responses:
+        "200":
+          description: List of authors for the RBL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedResponse'
+              example:
+                data:
+                - id: 1
+                  names: ["John Doe", "john.doe"]
+                  emails: ["john.doe@example.com"]
+                  rawPointScore: 85
+                  emaMentorScore: 82
+                - id: 2
+                  names: ["Jane Smith"]
+                  emails: ["jane@example.com", "jane.smith@company.com"]
+                  rawPointScore: 90
+                  emaMentorScore: 88
+                pagination:
+                  total_items: 25
+                  total_pages: 2
+                  current_page: 1
+                  per_page: 20
+        "401":
+          description: Unauthorized
+        "404":
+          description: RBL not found
+
+  /repositories/{repositoryId}/branches/{branchId}/snapshots/{snapId}/authors:
+    get:
+      security:
+      - BearerAuth: []
+      summary: Get authors for a specific snapshot (RBL Point)
+      description: |
+        Retrieves a list of all authors (code contributors) for a specific snapshot (RBL Point).
+        Each author includes their names, emails, contribution count, and scores for this specific
+        snapshot. This is read-only data derived from git commit history for the snapshot point.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: snapId
+        in: path
+        required: true
+        schema:
+          type: integer
+          description: Snapshot ID (RBLPoint_ID)
+      - name: languageId
+        in: query
+        required: false
+        schema:
+          type: integer
+          description: Language ID to select the specific RBL. If not provided, defaults to the first RBL for the branch.
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 1
+      - name: per_page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+      responses:
+        "200":
+          description: List of authors for the snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedResponse'
+              example:
+                data:
+                - id: 1
+                  names: ["John Doe", "john.doe"]
+                  emails: ["john.doe@example.com"]
+                  count: 15
+                  rawPointScore: 85
+                  emaMentorScore: 82
+                - id: 2
+                  names: ["Jane Smith"]
+                  emails: ["jane@example.com"]
+                  count: 8
+                  rawPointScore: 90
+                  emaMentorScore: 88
+                pagination:
+                  total_items: 25
+                  total_pages: 2
+                  current_page: 1
+                  per_page: 20
+        "401":
+          description: Unauthorized
+        "404":
+          description: Snapshot or RBL not found
+
+  /repositories/{repositoryId}/branches/{branchId}/languages/{languageId}/watch-configs:
+    get:
+      security:
+      - BearerAuth: []
+      summary: List watch configurations for an RBL
+      description: |
+        Retrieves all watch configurations for a specific RBL (Repository Branch Language).
+        Watch configurations allow users to monitor score changes and issue introductions/removals.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: languageId
+        in: path
+        required: true
+        schema:
+          type: integer
+          description: Language enum value (0=C, 1=CPP, 2=PYTHON, etc.)
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 1
+      - name: per_page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+      responses:
+        "200":
+          description: List of watch configurations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedResponse'
+        "401":
+          description: Unauthorized
+        "404":
+          description: RBL not found
+    post:
+      security:
+      - BearerAuth: []
+      summary: Create a watch configuration for an RBL
+      description: |
+        Creates a new watch configuration for a specific RBL. Watch configurations allow users to
+        monitor score changes and issue introductions/removals. The user making the request will be
+        automatically associated with the watch configuration.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: languageId
+        in: path
+        required: true
+        schema:
+          type: integer
+          description: Language enum value (0=C, 1=CPP, 2=PYTHON, etc.)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewWatchConfig'
+        required: true
+      responses:
+        "201":
+          description: Watch configuration created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatchConfig'
+        "400":
+          description: Invalid request
+        "401":
+          description: Unauthorized
+        "404":
+          description: RBL not found
+
+  /repositories/{repositoryId}/branches/{branchId}/languages/{languageId}/watch-configs/{configId}:
+    get:
+      security:
+      - BearerAuth: []
+      summary: Get a specific watch configuration
+      description: |
+        Retrieves a specific watch configuration by its ID for an RBL.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: languageId
+        in: path
+        required: true
+        schema:
+          type: integer
+          description: Language enum value (0=C, 1=CPP, 2=PYTHON, etc.)
+      - name: configId
+        in: path
+        required: true
+        schema:
+          type: integer
+          description: Watch configuration ID
+      responses:
+        "200":
+          description: Watch configuration retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatchConfig'
+        "401":
+          description: Unauthorized
+        "404":
+          description: Watch configuration or RBL not found
+    put:
+      security:
+      - BearerAuth: []
+      summary: Update a watch configuration
+      description: |
+        Updates an existing watch configuration. Only the user who created the watch configuration
+        or users with appropriate privileges can update it.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: languageId
+        in: path
+        required: true
+        schema:
+          type: integer
+          description: Language enum value (0=C, 1=CPP, 2=PYTHON, etc.)
+      - name: configId
+        in: path
+        required: true
+        schema:
+          type: integer
+          description: Watch configuration ID
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWatchConfig'
+        required: true
+      responses:
+        "200":
+          description: Watch configuration updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatchConfig'
+        "400":
+          description: Invalid request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden - user does not have permission to update this watch configuration
+        "404":
+          description: Watch configuration or RBL not found
+    delete:
+      security:
+      - BearerAuth: []
+      summary: Delete a watch configuration
+      description: |
+        Deletes a watch configuration. Only the user who created the watch configuration or users
+        with appropriate privileges can delete it.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: languageId
+        in: path
+        required: true
+        schema:
+          type: integer
+          description: Language enum value (0=C, 1=CPP, 2=PYTHON, etc.)
+      - name: configId
+        in: path
+        required: true
+        schema:
+          type: integer
+          description: Watch configuration ID
+      responses:
+        "204":
+          description: Watch configuration deleted successfully
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden - user does not have permission to delete this watch configuration
+        "404":
+          description: Watch configuration or RBL not found
+
+  /repositories/{repositoryId}/branches/{branchId}/languages/{languageId}/files:
+    get:
+      security:
+      - BearerAuth: []
+      summary: List files for an RBL
+      description: |
+        Retrieves a list of all files in a specific RBL (Repository Branch Language).
+        Files are the repository-level entries that represent files in the codebase.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: languageId
+        in: path
+        required: true
+        schema:
+          type: integer
+          description: Language enum value (0=C, 1=CPP, 2=PYTHON, etc.)
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 1
+      - name: per_page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+      responses:
+        "200":
+          description: List of files for the RBL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedResponse'
+        "401":
+          description: Unauthorized
+        "404":
+          description: RBL not found
+
+  /repositories/{repositoryId}/branches/{branchId}/languages/{languageId}/files/{fileId}:
+    get:
+      security:
+      - BearerAuth: []
+      summary: Get a specific file for an RBL
+      description: |
+        Retrieves detailed information about a specific file in an RBL.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: languageId
+        in: path
+        required: true
+        schema:
+          type: integer
+          description: Language enum value (0=C, 1=CPP, 2=PYTHON, etc.)
+      - name: fileId
+        in: path
+        required: true
+        schema:
+          type: integer
+          description: File ID (RBLFile_ID)
+      responses:
+        "200":
+          description: File retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/File'
+        "401":
+          description: Unauthorized
+        "404":
+          description: File or RBL not found
+
+  /repositories/{repositoryId}/branches/{branchId}/languages/{languageId}/files/{fileId}/versions:
+    get:
+      security:
+      - BearerAuth: []
+      summary: List file versions for a file
+      description: |
+        Retrieves all versions (git refs) of a specific file in an RBL.
+        Each version represents the file at a specific git reference.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: languageId
+        in: path
+        required: true
+        schema:
+          type: integer
+          description: Language enum value (0=C, 1=CPP, 2=PYTHON, etc.)
+      - name: fileId
+        in: path
+        required: true
+        schema:
+          type: integer
+          description: File ID (RBLFile_ID)
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 1
+      - name: per_page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+      responses:
+        "200":
+          description: List of file versions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedResponse'
+        "401":
+          description: Unauthorized
+        "404":
+          description: File or RBL not found
+
+  /repositories/{repositoryId}/branches/{branchId}/languages/{languageId}/expressions:
+    get:
+      security:
+      - BearerAuth: []
+      summary: List expressions for an RBL
+      description: |
+        Retrieves a list of all expressions in a specific RBL (Repository Branch Language).
+        Expressions are code patterns that have been analyzed for quality issues.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: languageId
+        in: path
+        required: true
+        schema:
+          type: integer
+          description: Language enum value (0=C, 1=CPP, 2=PYTHON, etc.)
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 1
+      - name: per_page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+      responses:
+        "200":
+          description: List of expressions for the RBL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedResponse'
+        "401":
+          description: Unauthorized
+        "404":
+          description: RBL not found
+
+  /repositories/{repositoryId}/branches/{branchId}/languages/{languageId}/expressions/{expressionId}:
+    get:
+      security:
+      - BearerAuth: []
+      summary: Get a specific expression for an RBL
+      description: |
+        Retrieves detailed information about a specific expression in an RBL.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: languageId
+        in: path
+        required: true
+        schema:
+          type: integer
+          description: Language enum value (0=C, 1=CPP, 2=PYTHON, etc.)
+      - name: expressionId
+        in: path
+        required: true
+        schema:
+          type: integer
+          description: Expression ID (RBLExpression_ID)
+      responses:
+        "200":
+          description: Expression retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Expression'
+        "401":
+          description: Unauthorized
+        "404":
+          description: Expression or RBL not found
+
+  /repositories/{repositoryId}/branches/{branchId}/snapshots/{snapId}/file-versions:
+    get:
+      security:
+      - BearerAuth: []
+      summary: List file versions used in a snapshot
+      description: |
+        Retrieves all file versions that are present in a specific snapshot (RBL Point).
+        This shows which versions of files were analyzed at this snapshot point.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: snapId
+        in: path
+        required: true
+        schema:
+          type: integer
+          description: Snapshot ID (RBLPoint_ID)
+      - name: languageId
+        in: query
+        required: false
+        schema:
+          type: integer
+          description: Language ID to select the specific RBL. If not provided, defaults to the first RBL for the branch.
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 1
+      - name: per_page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+      responses:
+        "200":
+          description: List of file versions in the snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedResponse'
+        "401":
+          description: Unauthorized
+        "404":
+          description: Snapshot or RBL not found
+
+  /repositories/{repositoryId}/branches/{branchId}/snapshots/{snapId}/expression-insights/{issueId}:
+    get:
+      security:
+      - BearerAuth: []
+      summary: Get expression insight for an issue
+      description: |
+        Fetches expression insights for a specific issue within a snapshot. This endpoint will return
+        a job_key if the insight is being generated, or the expression insight data if already complete.
+        The privacy_mode parameter controls what type of insights are returned.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: Repository ID
+      - name: branchId
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: Branch ID
+      - name: snapId
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: Snapshot ID (RBLPoint_ID)
+      - name: issueId
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Issue ID in format "expr-id:expr-index" (e.g., "123:456")
+      - name: privacy_mode
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [Private, PrimeForm, Public]
+          default: Public
+        description: 'Privacy mode for insight generation (default: Public)'
+      - name: languageId
+        in: query
+        required: false
+        schema:
+          type: integer
+        description: Language ID to select the specific RBL. If not provided, defaults to the first RBL for the branch.
+      responses:
+        "200":
+          description: Expression insight retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Expression insight data or job_key if still processing
+              examples:
+                completed:
+                  value:
+                    insight: "This is a complex expression that could be simplified..."
+                    expression: "if (x && y || z)"
+                pending:
+                  value:
+                    job_key: "r-123-rb-456-rbl-789@generate_insight"
+                    status: "pending"
+                    message: "Insight generation in progress"
+        "202":
+          description: Insight generation initiated, use job_key to check status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_key:
+                    type: string
+                    description: Job key to track insight generation progress
+                  status:
+                    type: string
+                    description: Current status (pending, running)
+                  message:
+                    type: string
+                    description: Human-readable status message
+        "404":
+          description: Issue not found in the specified snapshot
+        "401":
+          description: Unauthorized
+        "400":
+          description: Invalid request parameters
 
 #  /ci/analyze:
 #    post:
@@ -834,6 +2205,50 @@ components:
         role:
           type: string
           enum: [Developer, Lead, Admin, Owner, Demo]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    UpdateUser:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum: [Developer, Lead, Admin, Owner, Demo]
+
+    ChangePassword:
+      type: object
+      required:
+      - current_password
+      - new_password
+      properties:
+        current_password:
+          type: string
+          description: The user's current password
+        new_password:
+          type: string
+          minLength: 8
+          description: The new password (minimum 8 characters)
+        confirm_password:
+          type: string
+          description: Confirmation of the new password
+
+    PasswordResetRequest:
+      type: object
+      required:
+      - email
+      properties:
+        email:
+          type: string
+          format: email
+          description: The email address of the user requesting password reset
 
     Repository:
       type: object
@@ -861,6 +2276,12 @@ components:
           type: string
         description:
           type: string
+        gitUsername:
+          type: string
+          description: Optional git username for private repositories
+        gitPassword:
+          type: string
+          description: Optional git password/token for private repositories
 
     UpdateRepository:
       type: object
@@ -871,6 +2292,30 @@ components:
           type: string
         defaultBranch:
           type: string
+        gitRemote:
+          type: string
+        gitRoot:
+          type: string
+        sourceRoot:
+          type: string
+        repoIconLink:
+          type: string
+        repoLink:
+          type: string
+        autoUpdateInterval:
+          type: integer
+        allFiles:
+          type: boolean
+        publicInsights:
+          type: boolean
+        prefetchInsights:
+          type: boolean
+        shareVotes:
+          type: boolean
+        tags:
+          type: string
+        tabSize:
+          type: integer
     
     Language:
       type: object
@@ -902,6 +2347,16 @@ components:
       type: object
       properties:
         name:
+          type: string
+
+    UpdateBranch:
+      type: object
+      properties:
+        name:
+          type: string
+        gitRemote:
+          type: string
+        gitBranch:
           type: string
 
     BranchLanguage:
@@ -1079,6 +2534,32 @@ components:
           type: integer
           nullable: true
 
+    Author:
+      type: object
+      description: |
+        Represents a code author (contributor) for a specific RBL. Authors are identified
+        by their names and emails extracted from git commit history. This is read-only data.
+      properties:
+        id:
+          type: integer
+          description: Unique author ID within the RBL context
+        names:
+          type: array
+          items:
+            type: string
+          description: List of name variations used by this author
+        emails:
+          type: array
+          items:
+            type: string
+          description: List of email addresses used by this author
+        rawPointScore:
+          type: integer
+          description: Raw point score for this author. Default -1 if not calculated.
+        emaMentorScore:
+          type: integer
+          description: EMA mentor score for this author. Default -1 if not calculated.
+
     CIAnalysisRequest:
       required:
       - repoId
@@ -1172,6 +2653,436 @@ components:
         link:
           type: string
           format: uri
+
+    RBL:
+      type: object
+      properties:
+        id:
+          type: integer
+        branchId:
+          type: integer
+        language:
+          type: string
+        status:
+          type: string
+        created:
+          type: string
+          format: date-time
+        updated:
+          type: string
+          format: date-time
+        deleted:
+          type: boolean
+        earliestPointDate:
+          type: string
+          format: date-time
+        authorCount:
+          type: integer
+
+    UpdateRBL:
+      type: object
+      properties:
+        language:
+          type: string
+        status:
+          type: string
+        deleted:
+          type: boolean
+
+    JobStatus:
+      type: object
+      properties:
+        job_key:
+          type: string
+          description: The unique job key identifier
+        status:
+          type: string
+          enum: [pending, running, completed, failed, error, canceled]
+          description: Current status of the job
+        action:
+          type: string
+          description: The type of action being performed (e.g., clone, infer_points, analyze)
+        description:
+          type: string
+          description: Human-readable description of the job
+        created_at:
+          type: string
+          format: date-time
+          description: When the job was created
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the job started processing
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the job completed (successfully or with failure)
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+          nullable: true
+          description: Job progress percentage (0-100)
+        error_message:
+          type: string
+          nullable: true
+          description: Error message if the job failed
+        repository_id:
+          type: integer
+          nullable: true
+          description: Associated repository ID (if applicable)
+        branch_id:
+          type: integer
+          nullable: true
+          description: Associated branch ID (if applicable)
+        rbl_id:
+          type: integer
+          nullable: true
+          description: Associated RBL ID (if applicable)
+
+    GitCredentials:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Unique identifier for the git credentials
+        url:
+          type: string
+          description: Git repository URL pattern (use '*' for global credentials)
+        username:
+          type: string
+          description: Git username
+        password:
+          type: string
+          description: Git password or token (masked in responses)
+        created_at:
+          type: string
+          format: date-time
+          description: When the credentials were created
+        updated_at:
+          type: string
+          format: date-time
+          description: When the credentials were last updated
+
+    CreateGitCredentials:
+      type: object
+      required:
+        - url
+        - username
+        - password
+      properties:
+        url:
+          type: string
+          description: Git repository URL pattern (use '*' for global credentials)
+        username:
+          type: string
+          description: Git username
+        password:
+          type: string
+          description: Git password or token
+
+    UpdateGitCredentials:
+      type: object
+      properties:
+        username:
+          type: string
+          description: Git username
+        password:
+          type: string
+          description: Git password or token
+
+    WatchConfig:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Watch configuration ID
+        rblId:
+          type: integer
+          description: RBL ID this watch configuration is for
+        scoreEnabled:
+          type: boolean
+          description: Whether to watch for score changes
+        scoreChangeDir:
+          type: integer
+          description: Direction of score change to watch (0=Increases, 1=Decreases, 2=Either)
+        scoreChangeAmount:
+          type: integer
+          description: Amount of score change to trigger notification
+        scoreChangeType:
+          type: integer
+          description: Type of score change (0=Points, 1=Percentage)
+        scoreFreq:
+          type: integer
+          description: Frequency check value
+        scoreFreqType:
+          type: integer
+          description: Frequency check type
+        issuesEnabled:
+          type: boolean
+          description: Whether to watch for issue changes
+        anomaliesIntroduced:
+          type: boolean
+          description: Watch for anomalies being introduced
+        notablesIntroduced:
+          type: boolean
+          description: Watch for notables being introduced
+        introducedAmount:
+          type: integer
+          description: Amount threshold for introduced issues
+        issuesIntroducedChangeType:
+          type: integer
+          description: Change type for introduced issues (0=Issues, 1=Percentage)
+        anomaliesRemoved:
+          type: boolean
+          description: Watch for anomalies being removed
+        notablesRemoved:
+          type: boolean
+          description: Watch for notables being removed
+        removedAmount:
+          type: integer
+          description: Amount threshold for removed issues
+        issuesRemovedChangeType:
+          type: integer
+          description: Change type for removed issues (0=Issues, 1=Percentage)
+        issuesFreq:
+          type: integer
+          description: Frequency check value for issues
+        issuesFreqType:
+          type: integer
+          description: Frequency check type for issues
+
+    NewWatchConfig:
+      type: object
+      properties:
+        scoreEnabled:
+          type: boolean
+          description: Whether to watch for score changes
+        scoreChangeDir:
+          type: integer
+          description: Direction of score change to watch (0=Increases, 1=Decreases, 2=Either)
+        scoreChangeAmount:
+          type: integer
+          description: Amount of score change to trigger notification
+        scoreChangeType:
+          type: integer
+          description: Type of score change (0=Points, 1=Percentage)
+        scoreFreq:
+          type: integer
+          description: Frequency check value
+        scoreFreqType:
+          type: integer
+          description: Frequency check type
+        issuesEnabled:
+          type: boolean
+          description: Whether to watch for issue changes
+        anomaliesIntroduced:
+          type: boolean
+          description: Watch for anomalies being introduced
+        notablesIntroduced:
+          type: boolean
+          description: Watch for notables being introduced
+        introducedAmount:
+          type: integer
+          description: Amount threshold for introduced issues
+        issuesIntroducedChangeType:
+          type: integer
+          description: Change type for introduced issues (0=Issues, 1=Percentage)
+        anomaliesRemoved:
+          type: boolean
+          description: Watch for anomalies being removed
+        notablesRemoved:
+          type: boolean
+          description: Watch for notables being removed
+        removedAmount:
+          type: integer
+          description: Amount threshold for removed issues
+        issuesRemovedChangeType:
+          type: integer
+          description: Change type for removed issues (0=Issues, 1=Percentage)
+        issuesFreq:
+          type: integer
+          description: Frequency check value for issues
+        issuesFreqType:
+          type: integer
+          description: Frequency check type for issues
+
+    UpdateWatchConfig:
+      type: object
+      properties:
+        scoreEnabled:
+          type: boolean
+          description: Whether to watch for score changes
+        scoreChangeDir:
+          type: integer
+          description: Direction of score change to watch (0=Increases, 1=Decreases, 2=Either)
+        scoreChangeAmount:
+          type: integer
+          description: Amount of score change to trigger notification
+        scoreChangeType:
+          type: integer
+          description: Type of score change (0=Points, 1=Percentage)
+        scoreFreq:
+          type: integer
+          description: Frequency check value
+        scoreFreqType:
+          type: integer
+          description: Frequency check type
+        issuesEnabled:
+          type: boolean
+          description: Whether to watch for issue changes
+        anomaliesIntroduced:
+          type: boolean
+          description: Watch for anomalies being introduced
+        notablesIntroduced:
+          type: boolean
+          description: Watch for notables being introduced
+        introducedAmount:
+          type: integer
+          description: Amount threshold for introduced issues
+        issuesIntroducedChangeType:
+          type: integer
+          description: Change type for introduced issues (0=Issues, 1=Percentage)
+        anomaliesRemoved:
+          type: boolean
+          description: Watch for anomalies being removed
+        notablesRemoved:
+          type: boolean
+          description: Watch for notables being removed
+        removedAmount:
+          type: integer
+          description: Amount threshold for removed issues
+        issuesRemovedChangeType:
+          type: integer
+          description: Change type for removed issues (0=Issues, 1=Percentage)
+        issuesFreq:
+          type: integer
+          description: Frequency check value for issues
+        issuesFreqType:
+          type: integer
+          description: Frequency check type for issues
+
+    File:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: File ID (RBLFile_ID)
+        fileId:
+          type: integer
+          description: Internal file ID
+        name:
+          type: string
+          description: File name (resolved from Name_ID)
+        folderId:
+          type: integer
+          nullable: true
+          description: Parent folder ID (if any)
+        folderName:
+          type: string
+          nullable: true
+          description: Parent folder name resolved from Name_ID (if any)
+        folderPath:
+          type: string
+          nullable: true
+          description: Slash-separated folder path relative to the repository root (if any)
+        fullPath:
+          type: string
+          description: Full path to the file (folder path plus file name)
+        language:
+          type: string
+          description: Programming language
+
+    Expression:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Expression ID (RBLExpression_ID)
+        expressionId:
+          type: integer
+          description: Internal expression ID
+        snippetId:
+          type: integer
+          description: Snippet ID this expression is based on
+        score:
+          type: number
+          format: float
+          description: Expression score
+        cost:
+          type: number
+          format: float
+          description: Expression cost
+        expressionClass:
+          type: integer
+          description: Expression class
+        state:
+          type: integer
+          description: Expression state
+        expressionType:
+          type: integer
+          description: Expression type
+        snippetText:
+          type: string
+          description: Snippet text for this expression
+        snippetLanguage:
+          type: string
+          description: Programming language of the snippet
+        snippetMode:
+          type: integer
+          description: Snippet extraction mode
+        snippetType:
+          type: integer
+          description: Snippet type/category
+        expressionInstanceId:
+          type: integer
+          nullable: true
+          description: Expression instance ID (RBLExpressionInstance_ID) from the latest snapshot when available
+        expressionInstanceIndex:
+          type: integer
+          nullable: true
+          description: Expression instance index within the latest snapshot when available
+        fileId:
+          type: integer
+          nullable: true
+          description: File ID (RBLFile_ID) associated with the expression in the latest snapshot when available
+        fileName:
+          type: string
+          nullable: true
+          description: File name associated with the expression when available
+        fileFullPath:
+          type: string
+          nullable: true
+          description: Full file path associated with the expression when available
+        fileVersionId:
+          type: integer
+          nullable: true
+          description: File version ID (RBLFileVersion_ID) from the latest snapshot when available
+        fileVersionRef:
+          type: string
+          nullable: true
+          description: Mentor reference for the file version from the latest snapshot when available
+        expressionInfos:
+          type: array
+          description: Additional occurrence/classification information for the expression
+          items:
+            $ref: '#/components/schemas/ExpressionInfo'
+
+    ExpressionInfo:
+      type: object
+      properties:
+        occurrence:
+          type: number
+          format: float
+          description: Occurrence value for the expression
+        cls:
+          type: integer
+          description: Classification value for the expression
+        known:
+          type: boolean
+          description: Indicates whether the expression is known
 
   securitySchemes:
     BearerAuth:
