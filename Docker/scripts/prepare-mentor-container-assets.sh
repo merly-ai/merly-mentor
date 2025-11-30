@@ -124,6 +124,6 @@ prepare_merlymentor
 prepare_models
 prepare_assets
 prepare_mentorui
-prepare_mentorbridge
+# prepare_mentorbridge
 
 echo "All components prepared successfully."
