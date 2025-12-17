@@ -103,6 +103,33 @@ paths:
                   access_token:
                     type: string
 
+  /auth/refresh:
+    post:
+      security: []
+      summary: Refresh access token (legacy alias)
+      description: |
+        Legacy alias for `/auth/token`. Allows clients that still call `/auth/refresh`
+        to obtain a new access token using their refresh token.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token:
+                  type: string
+        required: true
+      responses:
+        "200":
+          description: New access token generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+
   /auth/logout:
     post:
       security:
@@ -232,6 +259,31 @@ paths:
                   total_pages: 3
                   current_page: 1
                   per_page: 20
+    post:
+      security:
+      - BearerAuth: []
+      summary: Create a new user
+      description: |
+        Creates a new user account. Only users with edit privileges can create users.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUser'
+      responses:
+        "201":
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        "400":
+          description: Invalid request payload
+        "403":
+          description: Forbidden - insufficient privileges
+        "409":
+          description: Conflict - user with the same email already exists
 
   /users/{userId}:
     get:
@@ -281,6 +333,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/User'
+        "403":
+          description: Forbidden - insufficient privileges
+        "404":
+          description: User not found
+    delete:
+      security:
+      - BearerAuth: []
+      summary: Delete a user
+      description: |
+        Deletes a user account. Users cannot delete their own record. Only users with edit privileges can delete other users.
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        "204":
+          description: User deleted successfully
+        "400":
+          description: Invalid request
         "403":
           description: Forbidden - insufficient privileges
         "404":
@@ -686,6 +759,37 @@ paths:
                   total_pages: 1
                   current_page: 1
                   per_page: 20
+    post:
+      security:
+      - BearerAuth: []
+      summary: Add a branch for analysis
+      description: |
+        Adds a specific branch from the repository for analysis.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewBranch'
+        required: true
+      responses:
+        "201":
+          description: Branch added for analysis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Branch'
+        "400":
+          description: Bad request - invalid branch name or repository not found
+        "401":
+          description: Unauthorized - invalid or missing token
+        "404":
+          description: Repository not found
 
   /branches/{branchId}:
     get:
@@ -747,31 +851,6 @@ paths:
       responses:
         "204":
           description: Branch deleted successfully
-#    post:
-#      security:
-#      - BearerAuth: []
-#      summary: Add a branch for analysis
-#      description: |
-#        Adds a specific branch from the repository for analysis.
-#      parameters:
-#      - name: repositoryId
-#        in: path
-#        required: true
-#        schema:
-#          type: integer
-#      requestBody:
-#        content:
-#          application/json:
-#            schema:
-#              $ref: '#/components/schemas/NewBranch'
-#        required: true
-#      responses:
-#        "201":
-#          description: Branch added for analysis
-#          content:
-#            application/json:
-#              schema:
-#                $ref: '#/components/schemas/Branch'
 
   /repositories/{repositoryId}/branches/{branchId}/snapshots:
     get:
@@ -2222,6 +2301,25 @@ components:
         role:
           type: string
           enum: [Developer, Lead, Admin, Owner, Demo]
+    CreateUser:
+      type: object
+      required: [name, email, password, role]
+      properties:
+        name:
+          type: string
+          description: Display name for the user
+        email:
+          type: string
+          format: email
+          description: Unique email address for the user
+        password:
+          type: string
+          format: password
+          description: Initial password for the user
+        role:
+          type: string
+          description: Role assigned to the user
+          enum: [Developer, Lead, Admin, Owner, Demo]
 
     ChangePassword:
       type: object
@@ -2263,6 +2361,16 @@ components:
           type: string
         defaultBranch:
           type: string
+        sourceRoot:
+          type: string
+          description: Resolved source root path on disk
+        gitRoot:
+          type: string
+          description: Resolved git root path on disk
+        rblId:
+          type: integer
+          format: int32
+          description: Primary Repo-Branch-Language identifier for the default branch/language
 
     NewRepository:
       required:
@@ -2334,6 +2442,9 @@ components:
           type: string
         lastCommitSha:
           type: string
+        revList:
+          type: string
+          description: Raw rev-list data for this branch (backend-defined format)
         languages:
           type: array
           items:

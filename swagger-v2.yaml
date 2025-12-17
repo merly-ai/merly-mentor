@@ -1,0 +1,3459 @@
+# =============================================================================
+# Mentor API v2 - RESTful API with Industry Best Practices
+# =============================================================================
+# 
+# Key Improvements over v1:
+# - Flat resource access (direct /rbls/{id}, /snapshots/{id})
+# - Consistent snake_case naming throughout
+# - RFC 7807 Problem Details for errors
+# - PATCH support for partial updates
+# - Hypermedia links (_links) for resource discovery
+# - Clear domain model: Repository → Branch → RBL → Snapshot (RBLPoint)
+# - Proper HTTP status codes and caching headers
+#
+# =============================================================================
+
+openapi: 3.0.3
+info:
+  title: Mentor API
+  version: 2.0.0
+  description: |
+    ## Overview
+    
+    API v2 for managing and analyzing git-based code repositories with lifetime analysis.
+
+    ### Domain Model
+    
+    ```
+    Repository (Repo)
+        └── Branch (RepoBranch)
+            └── RBL (RepoBranchLanguage) - analysis context for a branch+language
+                └── Snapshot (RBLPoint) - point-in-time analysis snapshot
+                    └── Issues, Authors, Files, Expressions
+    ```
+
+    ### Key Improvements in v2
+    
+    - **Flat Resource Access**: Access any resource directly (`/rbls/{id}`) or via hierarchy
+    - **Consistent Naming**: All properties use `snake_case`
+    - **Standard Errors**: RFC 7807 Problem Details format
+    - **Partial Updates**: PATCH support for efficient updates
+    - **Hypermedia**: `_links` for resource discovery (HATEOAS)
+    - **Proper HTTP Semantics**: Correct status codes, ETags, caching
+
+    ### Pagination
+    
+    All collection endpoints support cursor-based pagination:
+    - `cursor`: Opaque cursor for next page
+    - `limit`: Items per page (default: 20, max: 100)
+    
+    Response includes:
+    ```json
+    {
+      "data": [...],
+      "pagination": {
+        "total": 150,
+        "limit": 20,
+        "has_more": true,
+        "next_cursor": "eyJpZCI6MjB9"
+      }
+    }
+    ```
+
+    ### Filtering & Sorting
+    
+    - `sort`: Comma-separated fields, prefix `-` for descending (`sort=-created_at,name`)
+    - `filter`: JSON object for field filtering (`filter={"status":"active"}`)
+
+    ### Rate Limiting
+    
+    Response headers include:
+    - `X-RateLimit-Limit`: Requests allowed per window
+    - `X-RateLimit-Remaining`: Requests remaining
+    - `X-RateLimit-Reset`: Unix timestamp when window resets
+
+  contact:
+    name: Merly.ai API Support
+    email: support@merly.ai
+  license:
+    name: Proprietary
+    url: https://merly.ai/terms
+
+servers:
+  - url: /api/v2
+    description: API v2 endpoint
+  - url: /api/v1
+    description: Legacy API v1 endpoint (deprecated)
+
+tags:
+  - name: Authentication
+    description: User authentication and token management
+  - name: Repositories
+    description: Git repository management
+  - name: Branches
+    description: Repository branch management
+  - name: RBLs
+    description: Repository-Branch-Language analysis contexts
+  - name: Snapshots
+    description: Point-in-time analysis snapshots (RBL Points)
+  - name: Issues
+    description: Code quality issues detected by analysis
+  - name: Authors
+    description: Code contributors identified from git commit history
+  - name: Files
+    description: Source code files analyzed in RBLs
+  - name: Expressions
+    description: Code patterns detected by analysis engine
+  - name: WatchConfigs
+    description: Analysis configuration and monitoring rules
+  - name: Reports
+    description: Analysis reports and code quality metrics
+  - name: Languages
+    description: Programming languages detected in repositories
+  - name: Jobs
+    description: Async job tracking
+  - name: Users
+    description: User management
+  - name: Search
+    description: Cross-resource search
+
+# =============================================================================
+# PATHS
+# =============================================================================
+
+paths:
+  # ---------------------------------------------------------------------------
+  # Authentication
+  # ---------------------------------------------------------------------------
+  /auth/login:
+    post:
+      tags: [Authentication]
+      operationId: login
+      summary: Authenticate user
+      description: |
+        Authenticates a user and returns JWT access and refresh tokens.
+        
+        Access tokens expire in 15 minutes. Use the refresh token to obtain new access tokens.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokens'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /auth/token:
+    post:
+      tags: [Authentication]
+      operationId: refreshToken
+      summary: Refresh access token
+      description: Exchange a valid refresh token for a new access token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: New access token generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokens'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      operationId: logout
+      summary: Logout and invalidate session
+      description: Invalidates the current session and refresh token.
+      responses:
+        '204':
+          description: Successfully logged out
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ---------------------------------------------------------------------------
+  # Repositories - Full CRUD
+  # ---------------------------------------------------------------------------
+  /repositories:
+    get:
+      tags: [Repositories]
+      operationId: listRepositories
+      summary: List all repositories
+      description: |
+        Retrieves a paginated list of all repositories the user has access to.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/Filter'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, cloning, error, deleted]
+          description: Filter by repository status
+      responses:
+        '200':
+          description: List of repositories
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Repository'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Repositories]
+      operationId: createRepository
+      summary: Add repository for analysis
+      description: |
+        Adds an existing git repository to the system for analysis.
+        
+        The system will clone the repository and begin initial scanning.
+        Use the returned `job_key` to track clone progress via `/jobs/{job_key}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRepositoryRequest'
+      responses:
+        '201':
+          description: Repository created, cloning initiated
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URL of the created repository
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepositoryWithJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /repositories/{repository_id}:
+    parameters:
+      - $ref: '#/components/parameters/RepositoryId'
+
+    get:
+      tags: [Repositories]
+      operationId: getRepository
+      summary: Get repository details
+      description: Retrieves detailed information about a specific repository.
+      responses:
+        '200':
+          description: Repository details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Repository'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Repositories]
+      operationId: updateRepository
+      summary: Update repository (full replace)
+      description: Replaces all mutable fields of the repository.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRepositoryRequest'
+      responses:
+        '200':
+          description: Repository updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Repository'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+    patch:
+      tags: [Repositories]
+      operationId: patchRepository
+      summary: Partially update repository
+      description: Updates only the provided fields.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchRepositoryRequest'
+      responses:
+        '200':
+          description: Repository updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Repository'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Repositories]
+      operationId: deleteRepository
+      summary: Remove repository from analysis
+      description: |
+        Removes the repository and all associated data from the system.
+        This does not delete the actual git repository, only stops tracking it.
+      responses:
+        '204':
+          description: Repository deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Branches - Nested under Repository + Direct Access
+  # ---------------------------------------------------------------------------
+  /repositories/{repository_id}/branches:
+    parameters:
+      - $ref: '#/components/parameters/RepositoryId'
+
+    get:
+      tags: [Branches]
+      operationId: listRepositoryBranches
+      summary: List branches for a repository
+      description: Retrieves all branches tracked for analysis in this repository.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: List of branches
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Branch'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      tags: [Branches]
+      operationId: createBranch
+      summary: Add branch for analysis
+      description: Adds a specific branch from the repository for analysis.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBranchRequest'
+      responses:
+        '201':
+          description: Branch added for analysis
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URL of the created branch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Branch'
+        '202':
+          description: Branch not yet discovered; fetch queued. Retry after job completion.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobAccepted'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /branches/{branch_id}:
+    parameters:
+      - $ref: '#/components/parameters/BranchId'
+
+    get:
+      tags: [Branches]
+      operationId: getBranch
+      summary: Get branch details
+      description: Retrieves detailed information about a specific branch.
+      responses:
+        '200':
+          description: Branch details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Branch'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Branches]
+      operationId: deleteBranch
+      summary: Remove branch from analysis
+      description: Removes the branch and all associated analysis data.
+      responses:
+        '204':
+          description: Branch deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # RBLs (Repository-Branch-Language) - The Core Analysis Context
+  # ---------------------------------------------------------------------------
+  /branches/{branch_id}/rbls:
+    parameters:
+      - $ref: '#/components/parameters/BranchId'
+
+    get:
+      tags: [RBLs]
+      operationId: listBranchRbls
+      summary: List RBLs for a branch
+      description: |
+        Retrieves all RBL (Repository-Branch-Language) analysis contexts for a branch.
+        Each detected programming language in the branch has its own RBL.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: List of RBLs
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/RBL'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /rbls:
+    get:
+      tags: [RBLs]
+      operationId: listRbls
+      summary: List all accessible RBLs
+      description: |
+        Retrieves all RBLs the user has access to across all repositories.
+        Useful for dashboards showing analysis status across multiple projects.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/Filter'
+        - name: language
+          in: query
+          schema:
+            type: string
+            enum: [C, CPP, PYTHON, JAVA, JAVASCRIPT, TYPESCRIPT, GO, RUST, CSHARP, RUBY, PHP, SWIFT, KOTLIN]
+          description: Filter by programming language
+        - name: repository_id
+          in: query
+          schema:
+            type: integer
+          description: Filter by repository ID
+      responses:
+        '200':
+          description: List of RBLs
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/RBL'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /rbls/{rbl_id}:
+    parameters:
+      - $ref: '#/components/parameters/RblId'
+
+    get:
+      tags: [RBLs]
+      operationId: getRbl
+      summary: Get RBL details
+      description: |
+        Retrieves detailed information about a specific RBL, including
+        latest snapshot summary, issue counts, and analysis status.
+      responses:
+        '200':
+          description: RBL details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RBL'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [RBLs]
+      operationId: patchRbl
+      summary: Partially update RBL
+      description: Updates RBL configuration (e.g., status, analysis settings).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchRBLRequest'
+      responses:
+        '200':
+          description: RBL updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RBL'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [RBLs]
+      operationId: deleteRbl
+      summary: Remove RBL
+      description: Removes the RBL and all associated snapshots and analysis data.
+      responses:
+        '204':
+          description: RBL deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Snapshots (RBL Points) - Point-in-time Analysis
+  # ---------------------------------------------------------------------------
+  /rbls/{rbl_id}/snapshots:
+    parameters:
+      - $ref: '#/components/parameters/RblId'
+
+    get:
+      tags: [Snapshots]
+      operationId: listRblSnapshots
+      summary: List snapshots for an RBL
+      description: |
+        Retrieves all analysis snapshots (RBL Points) for an RBL.
+        Each snapshot represents analysis at a specific git commit.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Filter snapshots created after this date
+        - name: to_date
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Filter snapshots created before this date
+      responses:
+        '200':
+          description: List of snapshots
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Snapshot'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      tags: [Snapshots]
+      operationId: createSnapshot
+      summary: Create new snapshot(s)
+      description: |
+        Initiates creation of one or more analysis snapshots.
+        
+        Snapshot creation is asynchronous. The response includes a `job_key`
+        that can be used to track progress via `/jobs/{job_key}`.
+        
+        Methods:
+        - `single`: Analyze at HEAD (value ignored)
+        - `count`: Create N snapshots at evenly-spaced commits
+        - `duration`: Create snapshots at commits within last N days
+        - `ref`: Analyze at specific git ref (commit SHA, tag, branch)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSnapshotRequest'
+      responses:
+        '202':
+          description: Snapshot creation job initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobAccepted'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  # ---------------------------------------------------------------------------
+  # Issues - Code Quality Issues
+  # ---------------------------------------------------------------------------
+  /rbls/{rbl_id}/issues:
+    parameters:
+      - $ref: '#/components/parameters/RblId'
+
+    get:
+      tags: [Issues]
+      operationId: listRblIssues
+      summary: List issues for an RBL
+      description: |
+        Retrieves all code quality issues for an RBL from the latest snapshot.
+        Issues can be filtered by severity, file, status, etc.
+        
+        **Note**: This endpoint returns issues from the most recent snapshot.
+        For issues from a specific snapshot, use `/rbls/{rbl_id}/snapshots/{snapshot_id}/issues`.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, acknowledged, resolved, ignored]
+        - name: file_path
+          in: query
+          schema:
+            type: string
+          description: Filter by file path (supports wildcards)
+        - name: assignee_id
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of issues
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Issue'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /rbls/{rbl_id}/issues/{issue_id}:
+    parameters:
+      - $ref: '#/components/parameters/RblId'
+      - $ref: '#/components/parameters/IssueId'
+
+    get:
+      tags: [Issues]
+      operationId: getRblIssue
+      summary: Get issue details
+      description: |
+        Retrieves detailed information about a specific issue within an RBL.
+        
+        **Note**: Issue IDs are unique only within an RBL context, so the RBL ID
+        must be specified in the path.
+      responses:
+        '200':
+          description: Issue details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Issue'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Issues]
+      operationId: patchRblIssue
+      summary: Update issue
+      description: |
+        Updates issue metadata such as assignee, status, action, or comments.
+        Issue detection data (file, line, snippet) is immutable.
+        
+        **Note**: Issue IDs are unique only within an RBL context, so the RBL ID
+        must be specified in the path.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchIssueRequest'
+      responses:
+        '200':
+          description: Issue updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Issue'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /rbls/{rbl_id}/snapshots/{snapshot_id}:
+    parameters:
+      - $ref: '#/components/parameters/RblId'
+      - $ref: '#/components/parameters/SnapshotId'
+
+    get:
+      tags: [Snapshots]
+      operationId: getRblSnapshot
+      summary: Get snapshot details
+      description: |
+        Retrieves detailed information about a specific snapshot including
+        score, issue counts, file statistics, and analysis metadata.
+        
+        **Note**: Snapshot IDs are unique only within an RBL context, so the RBL ID
+        must be specified in the path.
+      responses:
+        '200':
+          description: Snapshot details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Snapshot'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Snapshots]
+      operationId: deleteRblSnapshot
+      summary: Delete a snapshot
+      description: |
+        Removes a specific snapshot and its analysis data.
+        
+        **Note**: Snapshot IDs are unique only within an RBL context, so the RBL ID
+        must be specified in the path.
+      responses:
+        '204':
+          description: Snapshot deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /rbls/{rbl_id}/snapshots/{snapshot_id}/issues:
+    parameters:
+      - $ref: '#/components/parameters/RblId'
+      - $ref: '#/components/parameters/SnapshotId'
+
+    get:
+      tags: [Issues]
+      operationId: listRblSnapshotIssues
+      summary: List issues in a snapshot
+      description: |
+        Retrieves all code quality issues detected in a specific snapshot.
+        Issues can be filtered by severity, file, status, etc.
+        
+        **Note**: Snapshot IDs are unique only within an RBL context, so the RBL ID
+        must be specified in the path.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, acknowledged, resolved, ignored]
+        - name: file_path
+          in: query
+          schema:
+            type: string
+          description: Filter by file path (supports wildcards)
+        - name: assignee_id
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of issues
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Issue'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /repositories/{repository_id}/issues:
+    parameters:
+      - $ref: '#/components/parameters/RepositoryId'
+
+    get:
+      tags: [Issues]
+      operationId: listRepositoryIssues
+      summary: List all issues in a repository
+      description: |
+        Retrieves all issues across all snapshots in a repository.
+        By default, returns issues from the latest snapshot of each RBL.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - name: language
+          in: query
+          schema:
+            type: string
+        - name: branch_id
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of issues
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Issue'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Jobs - Async Operation Tracking
+  # ---------------------------------------------------------------------------
+  /jobs/{job_key}:
+    parameters:
+      - name: job_key
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Unique job identifier
+        example: "r-123-rb-456-rbl-789@infer_points"
+
+    get:
+      tags: [Jobs]
+      operationId: getJobStatus
+      summary: Get job status
+      description: |
+        Retrieves the current status of an async job.
+        
+        Poll this endpoint to track progress of:
+        - Repository cloning (`clone`)
+        - Snapshot creation (`infer_points`)
+        - Insight generation (`generate_insight`)
+      responses:
+        '200':
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Jobs]
+      operationId: cancelJob
+      summary: Cancel a running job
+      description: Attempts to cancel a job that is pending or running.
+      responses:
+        '204':
+          description: Job canceled
+        '400':
+          description: Job cannot be canceled (already completed)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Users
+  # ---------------------------------------------------------------------------
+  /users:
+    get:
+      tags: [Users]
+      operationId: listUsers
+      summary: List users
+      description: |
+        Retrieves a paginated list of all users in the system.
+        
+        **Access Control**: Requires admin privileges (role: admin or owner).
+        
+        **Pagination**: Uses cursor-based pagination. Use `limit` to control page size
+        and `cursor` to navigate to the next page.
+        
+        **Filtering**: Filter by role using the `role` query parameter.
+        
+        **Example**:
+        ```bash
+        GET /api/v2/users?limit=20&role=admin
+        ```
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum: [developer, lead, admin, owner]
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Users]
+      operationId: createUser
+      summary: Create user
+      description: Creates a new user account (requires admin privileges).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /users/{user_id}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+
+    get:
+      tags: [Users]
+      operationId: getUser
+      summary: Get user details
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Users]
+      operationId: patchUser
+      summary: Update user
+      description: |
+        Updates user profile. Users can update their own profile.
+        Admins can update any user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchUserRequest'
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Users]
+      operationId: deleteUser
+      summary: Delete user
+      description: Deletes a user account (requires admin privileges).
+      responses:
+        '204':
+          description: User deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Authors - Code Contributors
+  # ---------------------------------------------------------------------------
+  /rbls/{rbl_id}/authors:
+    parameters:
+      - $ref: '#/components/parameters/RblId'
+
+    get:
+      tags: [Authors]
+      operationId: listRblAuthors
+      summary: List authors for an RBL
+      description: |
+        Retrieves all code authors (contributors) associated with an RBL.
+        Authors are identified by their names and emails extracted from git commit history.
+        
+        This endpoint returns authors who have contributed code to the branch+language
+        context represented by the RBL. Author information includes name variations,
+        email addresses, and contribution scores.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: List of authors
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Author'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /rbls/{rbl_id}/snapshots/{snapshot_id}/authors:
+    parameters:
+      - $ref: '#/components/parameters/RblId'
+      - $ref: '#/components/parameters/SnapshotId'
+
+    get:
+      tags: [Authors]
+      operationId: listRblSnapshotAuthors
+      summary: List authors in a snapshot
+      description: |
+        Retrieves all code authors (contributors) associated with a specific snapshot.
+        This provides a point-in-time view of contributors at a specific git commit.
+        
+        **Note**: Snapshot IDs are unique only within an RBL context, so the RBL ID
+        must be specified in the path.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: List of authors
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Author'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Files - Source Code Files
+  # ---------------------------------------------------------------------------
+  /rbls/{rbl_id}/files:
+    parameters:
+      - $ref: '#/components/parameters/RblId'
+
+    get:
+      tags: [Files]
+      operationId: listRblFiles
+      summary: List files for an RBL
+      description: |
+        Retrieves all source code files analyzed in an RBL.
+        Files are organized by language and include metadata such as path, size,
+        and line counts.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - name: file_path
+          in: query
+          schema:
+            type: string
+          description: Filter by file path (supports wildcards)
+        - name: extension
+          in: query
+          schema:
+            type: string
+          description: Filter by file extension (e.g., ".py", ".js")
+      responses:
+        '200':
+          description: List of files
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/File'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /rbls/{rbl_id}/files/{file_id}:
+    parameters:
+      - $ref: '#/components/parameters/RblId'
+      - name: file_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int32
+        description: File ID (unique within RBL)
+
+    get:
+      tags: [Files]
+      operationId: getRblFile
+      summary: Get file details
+      description: |
+        Retrieves detailed information about a specific file including its path,
+        size, line counts, and associated expressions.
+        
+        **Note**: File IDs are unique only within an RBL context, so the RBL ID
+        must be specified in the path.
+      responses:
+        '200':
+          description: File details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/File'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /rbls/{rbl_id}/files/{file_id}/versions:
+    parameters:
+      - $ref: '#/components/parameters/RblId'
+      - name: file_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int32
+        description: File ID (unique within RBL)
+
+    get:
+      tags: [Files]
+      operationId: listRblFileVersions
+      summary: List file version history
+      description: |
+        Retrieves the version history for a specific file across all snapshots
+        in an RBL. Each version represents the file at a specific git commit.
+        
+        **Note**: File IDs are unique only within an RBL context, so the RBL ID
+        must be specified in the path.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: List of file versions
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FileVersion'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /rbls/{rbl_id}/snapshots/{snapshot_id}/file-versions:
+    parameters:
+      - $ref: '#/components/parameters/RblId'
+      - $ref: '#/components/parameters/SnapshotId'
+
+    get:
+      tags: [Files]
+      operationId: listRblSnapshotFileVersions
+      summary: List file versions in a snapshot
+      description: |
+        Retrieves all file versions present in a specific snapshot.
+        This provides a point-in-time view of all files and their versions
+        at a specific git commit.
+        
+        **Note**: Snapshot IDs are unique only within an RBL context, so the RBL ID
+        must be specified in the path.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: List of file versions
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FileVersion'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Expressions - Code Patterns
+  # ---------------------------------------------------------------------------
+  /rbls/{rbl_id}/expressions:
+    parameters:
+      - $ref: '#/components/parameters/RblId'
+
+    get:
+      tags: [Expressions]
+      operationId: listRblExpressions
+      summary: List expressions for an RBL
+      description: |
+        Retrieves all code expressions (patterns) detected in an RBL.
+        Expressions represent code patterns identified by the analysis engine,
+        including their scores, costs, and classifications.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - name: expression_class
+          in: query
+          schema:
+            type: integer
+          description: Filter by expression class
+        - name: min_score
+          in: query
+          schema:
+            type: number
+            format: float
+          description: Filter by minimum score
+      responses:
+        '200':
+          description: List of expressions
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Expression'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /rbls/{rbl_id}/expressions/{expression_id}:
+    parameters:
+      - $ref: '#/components/parameters/RblId'
+      - name: expression_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int32
+        description: Expression ID (unique within RBL)
+
+    get:
+      tags: [Expressions]
+      operationId: getRblExpression
+      summary: Get expression details
+      description: |
+        Retrieves detailed information about a specific expression including
+        its snippet, score, cost, and associated instances.
+        
+        **Note**: Expression IDs are unique only within an RBL context, so the RBL ID
+        must be specified in the path.
+      responses:
+        '200':
+          description: Expression details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Expression'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /rbls/{rbl_id}/snapshots/{snapshot_id}/expressions:
+    parameters:
+      - $ref: '#/components/parameters/RblId'
+      - $ref: '#/components/parameters/SnapshotId'
+
+    get:
+      tags: [Expressions]
+      operationId: listRblSnapshotExpressions
+      summary: List expressions in a snapshot
+      description: |
+        Retrieves all expressions present in a specific snapshot.
+        This provides a point-in-time view of code patterns at a specific git commit.
+        
+        **Note**: Snapshot IDs are unique only within an RBL context, so the RBL ID
+        must be specified in the path.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: List of expressions
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Expression'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /rbls/{rbl_id}/issues/{issue_id}/expression-insights:
+    parameters:
+      - $ref: '#/components/parameters/RblId'
+      - $ref: '#/components/parameters/IssueId'
+
+    get:
+      tags: [Expressions]
+      operationId: getRblIssueExpressionInsights
+      summary: Get expression insights for an issue
+      description: |
+        Retrieves expression insights (analysis metadata) for a specific issue.
+        Insights provide detailed information about how expressions relate to issues,
+        including rendered HTML content, view counts, and voting data.
+        
+        **Note**: Issue IDs are unique only within an RBL context, so the RBL ID
+        must be specified in the path.
+      responses:
+        '200':
+          description: Expression insights
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExpressionInsight'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /rbls/{rbl_id}/expressions/{expression_id}/insights:
+    parameters:
+      - $ref: '#/components/parameters/RblId'
+      - name: expression_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int32
+        description: Expression ID (unique within RBL)
+
+    get:
+      tags: [Expressions]
+      operationId: getRblExpressionInsights
+      summary: Get insights for an expression
+      description: |
+        Retrieves insights (analysis metadata) for a specific expression.
+        Insights provide detailed information about the expression including
+        rendered HTML content, view counts, and voting data.
+        
+        **Note**: Expression IDs are unique only within an RBL context, so the RBL ID
+        must be specified in the path.
+      responses:
+        '200':
+          description: Expression insights
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExpressionInsight'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Watch Configs - Analysis Configuration
+  # ---------------------------------------------------------------------------
+  /rbls/{rbl_id}/watch-configs:
+    parameters:
+      - $ref: '#/components/parameters/RblId'
+
+    get:
+      tags: [WatchConfigs]
+      operationId: listRblWatchConfigs
+      summary: List watch configs for an RBL
+      description: |
+        Retrieves all watch configurations for an RBL.
+        Watch configs define analysis settings and monitoring rules for code patterns.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: List of watch configs
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/WatchConfig'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      tags: [WatchConfigs]
+      operationId: createRblWatchConfig
+      summary: Create watch config for an RBL
+      description: |
+        Creates a new watch configuration for an RBL.
+        Watch configs define analysis settings and monitoring rules.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWatchConfigRequest'
+      responses:
+        '201':
+          description: Watch config created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatchConfig'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /rbls/{rbl_id}/watch-configs/{config_id}:
+    parameters:
+      - $ref: '#/components/parameters/RblId'
+      - name: config_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int32
+        description: Watch config ID (unique within RBL)
+
+    get:
+      tags: [WatchConfigs]
+      operationId: getRblWatchConfig
+      summary: Get watch config details
+      description: |
+        Retrieves detailed information about a specific watch configuration.
+        
+        **Note**: Config IDs are unique only within an RBL context, so the RBL ID
+        must be specified in the path.
+      responses:
+        '200':
+          description: Watch config details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatchConfig'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [WatchConfigs]
+      operationId: patchRblWatchConfig
+      summary: Update watch config
+      description: |
+        Updates a watch configuration. Only specified fields are updated.
+        
+        **Note**: Config IDs are unique only within an RBL context, so the RBL ID
+        must be specified in the path.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchWatchConfigRequest'
+      responses:
+        '200':
+          description: Watch config updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatchConfig'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [WatchConfigs]
+      operationId: deleteRblWatchConfig
+      summary: Delete watch config
+      description: |
+        Removes a watch configuration.
+        
+        **Note**: Config IDs are unique only within an RBL context, so the RBL ID
+        must be specified in the path.
+      responses:
+        '204':
+          description: Watch config deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Reports - Analysis Reports
+  # ---------------------------------------------------------------------------
+  /repositories/{repository_id}/analysis-reports:
+    parameters:
+      - $ref: '#/components/parameters/RepositoryId'
+
+    get:
+      tags: [Reports]
+      operationId: listRepositoryAnalysisReports
+      summary: List analysis reports for a repository
+      description: |
+        Retrieves analysis reports for a repository.
+        Reports provide high-level summaries of code quality, trends, and insights
+        across all branches and languages in the repository.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: List of analysis reports
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AnalysisReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /rbls/{rbl_id}/analysis-reports:
+    parameters:
+      - $ref: '#/components/parameters/RblId'
+
+    get:
+      tags: [Reports]
+      operationId: listRblAnalysisReports
+      summary: List analysis reports for an RBL
+      description: |
+        Retrieves analysis reports for a specific RBL.
+        Reports provide detailed summaries of code quality, trends, and insights
+        for a specific branch+language context.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: List of analysis reports
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AnalysisReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /branches/{branch_id}/reports:
+    parameters:
+      - $ref: '#/components/parameters/BranchId'
+
+    get:
+      tags: [Reports]
+      operationId: listBranchReports
+      summary: List reports for a branch
+      description: |
+        Retrieves analysis reports for a branch.
+        Reports provide summaries of code quality and insights across all languages
+        in the branch.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: List of reports
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Report'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /rbls/{rbl_id}/reports:
+    parameters:
+      - $ref: '#/components/parameters/RblId'
+
+    get:
+      tags: [Reports]
+      operationId: listRblReports
+      summary: List reports for an RBL
+      description: |
+        Retrieves analysis reports for a specific RBL.
+        Reports provide detailed summaries of code quality and insights
+        for a specific branch+language context.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: List of reports
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Report'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Languages - Programming Languages
+  # ---------------------------------------------------------------------------
+  /repositories/{repository_id}/languages:
+    parameters:
+      - $ref: '#/components/parameters/RepositoryId'
+
+    get:
+      tags: [Languages]
+      operationId: listRepositoryLanguages
+      summary: List languages in a repository
+      description: |
+        Retrieves all programming languages detected across all branches in a repository.
+        Each language entry includes statistics such as file counts, line counts,
+        and analysis status.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: List of languages
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Language'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /branches/{branch_id}/languages:
+    parameters:
+      - $ref: '#/components/parameters/BranchId'
+
+    get:
+      tags: [Languages]
+      operationId: listBranchLanguages
+      summary: List languages in a branch
+      description: |
+        Retrieves all programming languages detected in a branch.
+        Each language entry includes statistics such as file counts, line counts,
+        and analysis status.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: List of languages
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Language'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Password Management
+  # ---------------------------------------------------------------------------
+  /users/{user_id}/password:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+
+    put:
+      tags: [Users]
+      operationId: updateUserPassword
+      summary: Update user password
+      description: |
+        Updates the password for a user account.
+        
+        **Access Control**: Users can update their own password. Admins can update
+        any user's password.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePasswordRequest'
+      responses:
+        '204':
+          description: Password updated
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users/password-reset:
+    post:
+      tags: [Users]
+      operationId: requestPasswordReset
+      summary: Request password reset
+      description: |
+        Initiates a password reset process for a user account.
+        This endpoint sends a password reset email to the user's registered email address.
+        
+        **Security**: This endpoint does not require authentication and is rate-limited
+        to prevent abuse.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequest'
+      responses:
+        '202':
+          description: Password reset request accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Password reset email sent if account exists"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+
+  # ---------------------------------------------------------------------------
+  # Search
+  # ---------------------------------------------------------------------------
+  /search:
+    get:
+      tags: [Search]
+      operationId: search
+      summary: Search across resources
+      description: |
+        Performs a full-text search across repositories, branches, issues, and files.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+          description: Search query
+        - name: type
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [repository, branch, rbl, snapshot, issue, file]
+          style: form
+          explode: false
+          description: Limit search to specific resource types
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResults'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+# =============================================================================
+# COMPONENTS
+# =============================================================================
+
+components:
+  # ---------------------------------------------------------------------------
+  # Parameters
+  # ---------------------------------------------------------------------------
+  parameters:
+    RepositoryId:
+      name: repository_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int32
+      description: Repository ID
+
+    BranchId:
+      name: branch_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int32
+      description: Branch ID
+
+    RblId:
+      name: rbl_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int32
+      description: RBL (Repository-Branch-Language) ID
+
+    SnapshotId:
+      name: snapshot_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int32
+      description: Snapshot (RBL Point) ID
+
+    IssueId:
+      name: issue_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Issue ID (format "expression_id:index")
+      example: "123:0"
+
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int32
+      description: User ID
+
+    Cursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+      description: Pagination cursor for the next page
+
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        format: int32
+        default: 20
+        minimum: 1
+        maximum: 100
+      description: Maximum items per page
+
+    Sort:
+      name: sort
+      in: query
+      schema:
+        type: string
+      description: |
+        Sort fields, comma-separated. Prefix with `-` for descending.
+        Example: `-created_at,name`
+
+    Filter:
+      name: filter
+      in: query
+      schema:
+        type: string
+      description: |
+        JSON-encoded filter object.
+        Example: `{"status":"active","language":"python"}`
+
+  # ---------------------------------------------------------------------------
+  # Response Definitions
+  # ---------------------------------------------------------------------------
+  responses:
+    BadRequest:
+      description: Bad request - invalid parameters
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    Unauthorized:
+      description: Unauthorized - invalid or missing authentication
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    Forbidden:
+      description: Forbidden - insufficient privileges
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    Conflict:
+      description: Conflict - resource already exists
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    ValidationError:
+      description: Validation error
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ProblemDetail'
+              - type: object
+                properties:
+                  errors:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ValidationErrorItem'
+
+  # ---------------------------------------------------------------------------
+  # Schemas
+  # ---------------------------------------------------------------------------
+  schemas:
+    # -------------------------------------------------------------------------
+    # Common/Shared Schemas
+    # -------------------------------------------------------------------------
+    ProblemDetail:
+      type: object
+      description: RFC 7807 Problem Details for HTTP APIs
+      required:
+        - type
+        - title
+        - status
+      properties:
+        type:
+          type: string
+          format: uri
+          description: URI identifying the problem type
+          example: "https://api.merly.ai/problems/not-found"
+        title:
+          type: string
+          description: Short, human-readable summary
+          example: "Resource Not Found"
+        status:
+          type: integer
+          description: HTTP status code
+          example: 404
+        detail:
+          type: string
+          description: Human-readable explanation
+          example: "Repository with ID 123 was not found"
+        instance:
+          type: string
+          format: uri
+          description: URI of the specific occurrence
+          example: "/api/v2/repositories/123"
+        trace_id:
+          type: string
+          description: Request trace ID for debugging
+          example: "abc123def456"
+
+    ValidationErrorItem:
+      type: object
+      properties:
+        field:
+          type: string
+          description: Field that failed validation
+          example: "git_url"
+        message:
+          type: string
+          description: Validation error message
+          example: "must be a valid git URL"
+        code:
+          type: string
+          description: Error code
+          example: "invalid_format"
+
+    PaginatedResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+        pagination:
+          $ref: '#/components/schemas/PaginationInfo'
+        _links:
+          $ref: '#/components/schemas/PaginationLinks'
+
+    PaginationInfo:
+      type: object
+      properties:
+        total:
+          type: integer
+          description: Total number of items
+        limit:
+          type: integer
+          description: Items per page
+        has_more:
+          type: boolean
+          description: Whether more pages exist
+        next_cursor:
+          type: string
+          nullable: true
+          description: Cursor for next page
+
+    PaginationLinks:
+      type: object
+      description: HATEOAS pagination links
+      properties:
+        self:
+          type: string
+          format: uri
+        next:
+          type: string
+          format: uri
+          nullable: true
+        prev:
+          type: string
+          format: uri
+          nullable: true
+
+    ResourceLinks:
+      type: object
+      description: HATEOAS resource links
+      additionalProperties:
+        type: string
+        format: uri
+
+    # -------------------------------------------------------------------------
+    # Authentication Schemas
+    # -------------------------------------------------------------------------
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+
+    RefreshTokenRequest:
+      type: object
+      required:
+        - refresh_token
+      properties:
+        refresh_token:
+          type: string
+
+    AuthTokens:
+      type: object
+      properties:
+        access_token:
+          type: string
+          description: JWT access token (expires in 15 minutes)
+        refresh_token:
+          type: string
+          description: Refresh token for obtaining new access tokens
+        token_type:
+          type: string
+          default: "Bearer"
+        expires_in:
+          type: integer
+          description: Access token expiry in seconds
+          example: 900
+
+    # -------------------------------------------------------------------------
+    # Repository Schemas
+    # -------------------------------------------------------------------------
+    BranchInfo:
+      type: object
+      description: Git branch information with name and last commit date
+      properties:
+        name:
+          type: string
+          description: Branch name (e.g., "main", "origin/main")
+          example: "main"
+        date:
+          type: string
+          format: date
+          description: Last commit date for this branch (YYYY-MM-DD format)
+          example: "2025-12-02"
+
+    Exclusions:
+      type: object
+      description: Repository exclusions (matches MentorConfiguration.hpp exclusions_t)
+      properties:
+        folders:
+          type: array
+          items:
+            type: string
+        files:
+          type: array
+          items:
+            type: string
+
+    Repository:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int32
+          readOnly: true
+        name:
+          type: string
+          example: "my-project"
+        description:
+          type: string
+          nullable: true
+        git_url:
+          type: string
+          format: uri
+          example: "https://github.com/user/my-project.git"
+        default_branch:
+          type: string
+          example: "main"
+        status:
+          type: string
+          enum: [active, cloning, scanning, error, deleted]
+          readOnly: true
+        source_root:
+          type: string
+          nullable: true
+          description: Local source root path
+        git_root:
+          type: string
+          nullable: true
+          description: Git root path if different from source_root
+        auto_update_interval:
+          type: integer
+          description: Auto-update interval in minutes (0 = disabled)
+        branches:
+          type: array
+          description: Available git branches discovered from the repository (from the last fetch/scan). Each entry contains branch name and last commit date.
+          readOnly: true
+          items:
+            $ref: '#/components/schemas/BranchInfo'
+        exclusions:
+          $ref: '#/components/schemas/Exclusions'
+        contributor_samples:
+          type: integer
+          format: int32
+          description: Number of contributor samples collected for this repository
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        _links:
+          $ref: '#/components/schemas/ResourceLinks'
+
+    CreateRepositoryRequest:
+      type: object
+      required:
+        - name
+        - git_url
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        git_url:
+          type: string
+          format: uri
+        description:
+          type: string
+          maxLength: 1000
+        git_username:
+          type: string
+          description: Username for private repositories
+        git_password:
+          type: string
+          format: password
+          description: Password/token for private repositories
+        git_branch:
+          type: string
+          description: Initial branch to track (defaults to default branch)
+        source_root:
+          type: string
+        git_root:
+          type: string
+
+    UpdateRepositoryRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        default_branch:
+          type: string
+        source_root:
+          type: string
+        git_root:
+          type: string
+        auto_update_interval:
+          type: integer
+
+    PatchRepositoryRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        default_branch:
+          type: string
+        source_root:
+          type: string
+        git_root:
+          type: string
+        auto_update_interval:
+          type: integer
+
+    RepositoryWithJob:
+      allOf:
+        - $ref: '#/components/schemas/Repository'
+        - type: object
+          properties:
+            job:
+              $ref: '#/components/schemas/JobAccepted'
+
+    # -------------------------------------------------------------------------
+    # Branch Schemas
+    # -------------------------------------------------------------------------
+    Branch:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int32
+          readOnly: true
+        repository_id:
+          type: integer
+          format: int32
+          readOnly: true
+        name:
+          type: string
+          example: "main"
+        last_commit_sha:
+          type: string
+          example: "abc123def456"
+        rev_list:
+          type: string
+          nullable: true
+          readOnly: true
+          description: Raw rev-list data for this branch (backend-defined format)
+        is_default:
+          type: boolean
+        lifetime_mentor_score:
+          type: number
+          format: float
+          nullable: true
+        languages:
+          type: array
+          items:
+            $ref: '#/components/schemas/LanguageSummary'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        _links:
+          $ref: '#/components/schemas/ResourceLinks'
+
+    CreateBranchRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+
+    LanguageSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          example: "Python"
+        percentage:
+          type: number
+          format: float
+          example: 65.5
+
+    # -------------------------------------------------------------------------
+    # RBL Schemas
+    # -------------------------------------------------------------------------
+    RBL:
+      type: object
+      description: Repository-Branch-Language analysis context
+      properties:
+        id:
+          type: integer
+          format: int32
+          readOnly: true
+        repository_id:
+          type: integer
+          format: int32
+          readOnly: true
+        branch_id:
+          type: integer
+          format: int32
+          readOnly: true
+        language:
+          type: string
+          enum: [C, CPP, PYTHON, JAVA, JAVASCRIPT, TYPESCRIPT, GO, RUST, CSHARP, RUBY, PHP, SWIFT, KOTLIN]
+        status:
+          type: string
+          enum: [active, scanning, paused, error]
+        lifetime_mentor_score:
+          type: number
+          format: float
+          nullable: true
+        last_score:
+          type: number
+          format: float
+          nullable: true
+        last_issue_count:
+          type: integer
+          nullable: true
+        last_analyzed_at:
+          type: string
+          format: date-time
+          nullable: true
+        earliest_point_date:
+          type: string
+          format: date-time
+          nullable: true
+        author_count:
+          type: integer
+        snapshot_count:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        _links:
+          $ref: '#/components/schemas/ResourceLinks'
+
+    PatchRBLRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [active, paused]
+
+    # -------------------------------------------------------------------------
+    # Snapshot Schemas
+    # -------------------------------------------------------------------------
+    Snapshot:
+      type: object
+      description: Point-in-time analysis snapshot (RBL Point)
+      properties:
+        id:
+          type: integer
+          format: int32
+          readOnly: true
+        rbl_id:
+          type: integer
+          format: int32
+          readOnly: true
+        branch_id:
+          type: integer
+          format: int32
+          readOnly: true
+        repository_id:
+          type: integer
+          format: int32
+          readOnly: true
+        point_ref:
+          type: string
+          description: Git commit SHA
+          example: "abc123def456"
+        point_time:
+          type: string
+          format: date-time
+          description: Timestamp of the git commit
+        language:
+          type: string
+        score:
+          type: number
+          format: float
+        content_files:
+          type: integer
+          description: Number of files analyzed
+        content_size:
+          type: integer
+          description: Total size in bytes
+        lines_of_code:
+          type: integer
+        issue_count:
+          type: integer
+          description: Total issues found
+        anomaly_count:
+          type: integer
+        notable_count:
+          type: integer
+        expression_count:
+          type: integer
+        _links:
+          $ref: '#/components/schemas/ResourceLinks'
+
+    CreateSnapshotRequest:
+      type: object
+      required:
+        - method
+      properties:
+        method:
+          type: string
+          enum: [single, count, duration, ref]
+          description: |
+            - `single`: Analyze at HEAD
+            - `count`: Create N snapshots at evenly-spaced commits
+            - `duration`: Create snapshots within last N days
+            - `ref`: Analyze at specific git ref
+        value:
+          type: integer
+          description: Required for `count` and `duration` methods
+        ref:
+          type: string
+          description: Git ref (commit SHA, tag, branch) for `ref` method
+
+    # -------------------------------------------------------------------------
+    # Issue Schemas
+    # -------------------------------------------------------------------------
+    Issue:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Issue ID (format "expression_id:index")
+          example: "123:0"
+        repository_id:
+          type: integer
+          format: int32
+        snapshot_id:
+          type: integer
+          format: int32
+        expression_instance_id:
+          type: integer
+          format: int32
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        status:
+          type: string
+          enum: [open, acknowledged, resolved, ignored]
+          default: open
+        action:
+          type: string
+          nullable: true
+          enum: [ignore, investigate, simplify, fix, potential_crash, potential_security_issue]
+        file_path:
+          type: string
+          example: "src/utils/parser.py"
+        file_line:
+          type: integer
+          description: Line number in file
+        file_column:
+          type: integer
+          nullable: true
+        snippet:
+          type: string
+          description: Code snippet containing the issue
+        comment:
+          type: string
+          nullable: true
+        category_id:
+          type: integer
+          nullable: true
+        reporter_id:
+          type: integer
+          nullable: true
+        reported_at:
+          type: string
+          format: date-time
+          nullable: true
+        assignee_id:
+          type: integer
+          nullable: true
+        assigned_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        _links:
+          $ref: '#/components/schemas/ResourceLinks'
+
+    PatchIssueRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [open, acknowledged, resolved, ignored]
+        action:
+          type: string
+          enum: [ignore, investigate, simplify, fix, potential_crash, potential_security_issue]
+        comment:
+          type: string
+        category_id:
+          type: integer
+        assignee_id:
+          type: integer
+
+    # -------------------------------------------------------------------------
+    # Job Schemas
+    # -------------------------------------------------------------------------
+    Job:
+      type: object
+      properties:
+        job_key:
+          type: string
+          example: "r-123-rb-456-rbl-789@infer_points"
+        status:
+          type: string
+          enum: [pending, running, completed, failed, canceled]
+        action:
+          type: string
+          description: Type of job (clone, infer_points, generate_insight, etc.)
+        description:
+          type: string
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+          nullable: true
+        error_message:
+          type: string
+          nullable: true
+        repository_id:
+          type: integer
+          nullable: true
+        branch_id:
+          type: integer
+          nullable: true
+        rbl_id:
+          type: integer
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    JobAccepted:
+      type: object
+      properties:
+        job_key:
+          type: string
+        status:
+          type: string
+          enum: [pending, running]
+        message:
+          type: string
+        _links:
+          type: object
+          properties:
+            job:
+              type: string
+              format: uri
+
+    # -------------------------------------------------------------------------
+    # User Schemas
+    # -------------------------------------------------------------------------
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int32
+          readOnly: true
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [developer, lead, admin, owner]
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        _links:
+          $ref: '#/components/schemas/ResourceLinks'
+
+    CreateUserRequest:
+      type: object
+      required:
+        - name
+        - email
+        - password
+        - role
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          minLength: 8
+        role:
+          type: string
+          enum: [developer, lead, admin, owner]
+
+    PatchUserRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [developer, lead, admin, owner]
+
+    # -------------------------------------------------------------------------
+    # Search Schemas
+    # -------------------------------------------------------------------------
+    SearchResults:
+      type: object
+      properties:
+        repositories:
+          type: array
+          items:
+            $ref: '#/components/schemas/Repository'
+        branches:
+          type: array
+          items:
+            $ref: '#/components/schemas/Branch'
+        rbls:
+          type: array
+          items:
+            $ref: '#/components/schemas/RBL'
+        snapshots:
+          type: array
+          items:
+            $ref: '#/components/schemas/Snapshot'
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/Issue'
+        total_results:
+          type: integer
+
+    # -------------------------------------------------------------------------
+    # Author Schemas
+    # -------------------------------------------------------------------------
+    Author:
+      type: object
+      description: Code author (contributor) identified by names and emails from git commit history
+      properties:
+        id:
+          type: integer
+          format: int32
+          readOnly: true
+          description: Unique author ID within the RBL context
+        names:
+          type: array
+          items:
+            type: string
+          description: List of name variations used by this author
+          example: ["John Doe", "John D.", "jdoe"]
+        emails:
+          type: array
+          items:
+            type: string
+            format: email
+          description: List of email addresses used by this author
+          example: ["john.doe@example.com", "jdoe@example.com"]
+        raw_point_score:
+          type: integer
+          description: Raw point score for this author (default -1 if not calculated)
+          default: -1
+        ema_mentor_score:
+          type: integer
+          description: EMA mentor score for this author (default -1 if not calculated)
+          default: -1
+        _links:
+          $ref: '#/components/schemas/ResourceLinks'
+
+    # -------------------------------------------------------------------------
+    # File Schemas
+    # -------------------------------------------------------------------------
+    File:
+      type: object
+      description: Source code file analyzed in an RBL
+      properties:
+        id:
+          type: integer
+          format: int32
+          readOnly: true
+          description: File ID (unique within RBL)
+        rbl_id:
+          type: integer
+          format: int32
+          readOnly: true
+        file_path:
+          type: string
+          description: Full path to the file
+          example: "src/utils/parser.py"
+        file_name:
+          type: string
+          description: File name without path
+          example: "parser.py"
+        extension:
+          type: string
+          description: File extension
+          example: ".py"
+        size:
+          type: integer
+          description: File size in bytes
+        lines_of_code:
+          type: integer
+          description: Number of lines of code
+        language:
+          type: string
+          description: Programming language
+        _links:
+          $ref: '#/components/schemas/ResourceLinks'
+
+    FileVersion:
+      type: object
+      description: Version of a file at a specific git commit
+      properties:
+        id:
+          type: integer
+          format: int32
+          readOnly: true
+        file_id:
+          type: integer
+          format: int32
+          readOnly: true
+        snapshot_id:
+          type: integer
+          format: int32
+          readOnly: true
+        version_ref:
+          type: string
+          description: Git commit SHA for this version
+          example: "abc123def456"
+        version_time:
+          type: string
+          format: date-time
+          description: Timestamp of the git commit
+        size:
+          type: integer
+          description: File size in bytes at this version
+        lines_of_code:
+          type: integer
+          description: Number of lines of code at this version
+        _links:
+          $ref: '#/components/schemas/ResourceLinks'
+
+    # -------------------------------------------------------------------------
+    # Expression Schemas
+    # -------------------------------------------------------------------------
+    Expression:
+      type: object
+      description: Code pattern (expression) detected by analysis engine
+      properties:
+        id:
+          type: integer
+          format: int32
+          readOnly: true
+          description: Expression ID (unique within RBL)
+        rbl_id:
+          type: integer
+          format: int32
+          readOnly: true
+        snippet_id:
+          type: integer
+          format: int32
+          readOnly: true
+        snippet_text:
+          type: string
+          description: Code snippet text for this expression
+        score:
+          type: number
+          format: float
+          description: Expression score
+        cost:
+          type: number
+          format: float
+          description: Expression cost
+        expression_class:
+          type: integer
+          description: Expression classification
+        expression_type:
+          type: integer
+          description: Expression type
+        state:
+          type: integer
+          description: Expression state
+        _links:
+          $ref: '#/components/schemas/ResourceLinks'
+
+    ExpressionInsight:
+      type: object
+      description: Analysis insights and metadata for an expression or issue
+      properties:
+        id:
+          type: integer
+          format: int32
+          readOnly: true
+        expression_id:
+          type: integer
+          format: int32
+          readOnly: true
+        issue_id:
+          type: string
+          readOnly: true
+          description: Issue ID if this insight is issue-specific
+        html:
+          type: string
+          description: Rendered HTML content for the insight
+        views:
+          type: integer
+          description: Number of times this insight has been viewed
+        up_votes:
+          type: integer
+          description: Number of up votes
+        down_votes:
+          type: integer
+          description: Number of down votes
+        _links:
+          $ref: '#/components/schemas/ResourceLinks'
+
+    # -------------------------------------------------------------------------
+    # Watch Config Schemas
+    # -------------------------------------------------------------------------
+    WatchConfig:
+      type: object
+      description: Watch configuration (exact mapping of RepoWatchConfig_V1 / RBLWatchConfig)
+      properties:
+        id:
+          type: integer
+          format: int32
+          readOnly: true
+          description: Config ID (unique within RBL)
+        rbl_id:
+          type: integer
+          format: int32
+          readOnly: true
+        score_enabled:
+          type: boolean
+        score_change_dir:
+          type: integer
+          format: int32
+        score_change_amount:
+          type: integer
+          format: int32
+        score_change_type:
+          type: integer
+          format: int32
+        score_freq:
+          type: integer
+          format: int32
+        score_freq_type:
+          type: integer
+          format: int32
+        issues_enabled:
+          type: boolean
+        anomalies_introduced:
+          type: boolean
+        notables_introduced:
+          type: boolean
+        introduced_amount:
+          type: integer
+          format: int32
+        issues_introduced_change_type:
+          type: integer
+          format: int32
+        anomalies_removed:
+          type: boolean
+        notables_removed:
+          type: boolean
+        removed_amount:
+          type: integer
+          format: int32
+        issues_removed_change_type:
+          type: integer
+          format: int32
+        issues_freq:
+          type: integer
+          format: int32
+        issues_freq_type:
+          type: integer
+          format: int32
+
+    CreateWatchConfigRequest:
+      type: object
+      required:
+        - score_enabled
+        - score_change_dir
+        - score_change_amount
+        - score_change_type
+        - score_freq
+        - score_freq_type
+        - issues_enabled
+        - anomalies_introduced
+        - notables_introduced
+        - introduced_amount
+        - issues_introduced_change_type
+        - anomalies_removed
+        - notables_removed
+        - removed_amount
+        - issues_removed_change_type
+        - issues_freq
+        - issues_freq_type
+      properties:
+        score_enabled:
+          type: boolean
+        score_change_dir:
+          type: integer
+          format: int32
+        score_change_amount:
+          type: integer
+          format: int32
+        score_change_type:
+          type: integer
+          format: int32
+        score_freq:
+          type: integer
+          format: int32
+        score_freq_type:
+          type: integer
+          format: int32
+        issues_enabled:
+          type: boolean
+        anomalies_introduced:
+          type: boolean
+        notables_introduced:
+          type: boolean
+        introduced_amount:
+          type: integer
+          format: int32
+        issues_introduced_change_type:
+          type: integer
+          format: int32
+        anomalies_removed:
+          type: boolean
+        notables_removed:
+          type: boolean
+        removed_amount:
+          type: integer
+          format: int32
+        issues_removed_change_type:
+          type: integer
+          format: int32
+        issues_freq:
+          type: integer
+          format: int32
+        issues_freq_type:
+          type: integer
+          format: int32
+
+    PatchWatchConfigRequest:
+      type: object
+      properties:
+        score_enabled:
+          type: boolean
+          nullable: true
+        score_change_dir:
+          type: integer
+          format: int32
+          nullable: true
+        score_change_amount:
+          type: integer
+          format: int32
+          nullable: true
+        score_change_type:
+          type: integer
+          format: int32
+          nullable: true
+        score_freq:
+          type: integer
+          format: int32
+          nullable: true
+        score_freq_type:
+          type: integer
+          format: int32
+          nullable: true
+        issues_enabled:
+          type: boolean
+          nullable: true
+        anomalies_introduced:
+          type: boolean
+          nullable: true
+        notables_introduced:
+          type: boolean
+          nullable: true
+        introduced_amount:
+          type: integer
+          format: int32
+          nullable: true
+        issues_introduced_change_type:
+          type: integer
+          format: int32
+          nullable: true
+        anomalies_removed:
+          type: boolean
+          nullable: true
+        notables_removed:
+          type: boolean
+          nullable: true
+        removed_amount:
+          type: integer
+          format: int32
+          nullable: true
+        issues_removed_change_type:
+          type: integer
+          format: int32
+          nullable: true
+        issues_freq:
+          type: integer
+          format: int32
+          nullable: true
+        issues_freq_type:
+          type: integer
+          format: int32
+          nullable: true
+
+    # -------------------------------------------------------------------------
+    # Report Schemas
+    # -------------------------------------------------------------------------
+    AnalysisReport:
+      type: object
+      description: Comprehensive analysis report with code quality metrics and insights
+      properties:
+        id:
+          type: integer
+          format: int32
+          readOnly: true
+        repository_id:
+          type: integer
+          format: int32
+          readOnly: true
+        rbl_id:
+          type: integer
+          format: int32
+          nullable: true
+          readOnly: true
+        generated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        summary:
+          type: object
+          description: High-level summary metrics
+          properties:
+            total_files:
+              type: integer
+            total_lines:
+              type: integer
+            total_issues:
+              type: integer
+            average_score:
+              type: number
+              format: float
+        trends:
+          type: object
+          description: Trend analysis over time
+        _links:
+          $ref: '#/components/schemas/ResourceLinks'
+
+    Report:
+      type: object
+      description: Analysis report for a branch or RBL
+      properties:
+        id:
+          type: integer
+          format: int32
+          readOnly: true
+        branch_id:
+          type: integer
+          format: int32
+          nullable: true
+          readOnly: true
+        rbl_id:
+          type: integer
+          format: int32
+          nullable: true
+          readOnly: true
+        generated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        metrics:
+          type: object
+          description: Code quality metrics
+        _links:
+          $ref: '#/components/schemas/ResourceLinks'
+
+    # -------------------------------------------------------------------------
+    # Language Schemas
+    # -------------------------------------------------------------------------
+    Language:
+      type: object
+      description: Programming language detected in a repository or branch
+      properties:
+        language:
+          type: string
+          enum: [C, CPP, PYTHON, JAVA, JAVASCRIPT, TYPESCRIPT, GO, RUST, CSHARP, RUBY, PHP, SWIFT, KOTLIN]
+          description: Programming language name
+        file_count:
+          type: integer
+          description: Number of files in this language
+        lines_of_code:
+          type: integer
+          description: Total lines of code
+        rbl_id:
+          type: integer
+          format: int32
+          nullable: true
+          readOnly: true
+          description: RBL ID if scoped to a specific RBL
+        _links:
+          $ref: '#/components/schemas/ResourceLinks'
+
+    # -------------------------------------------------------------------------
+    # Password Management Schemas
+    # -------------------------------------------------------------------------
+    UpdatePasswordRequest:
+      type: object
+      required:
+        - current_password
+        - new_password
+      properties:
+        current_password:
+          type: string
+          format: password
+          description: Current password (required for self-update)
+        new_password:
+          type: string
+          format: password
+          minLength: 8
+          description: New password
+
+    PasswordResetRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+          description: Email address of the account to reset
+
+  # ---------------------------------------------------------------------------
+  # Security Schemes
+  # ---------------------------------------------------------------------------
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT token obtained from `/auth/login` or `/auth/token`.
+        
+        Include in the Authorization header:
+        ```
+        Authorization: Bearer <token>
+        ```
+
+security:
+  - BearerAuth: []
+
