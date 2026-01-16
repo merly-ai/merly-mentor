@@ -1,24 +1,11 @@
 FROM node:20.18.0 AS production
 
-# Metadata Labels
-LABEL org.opencontainers.image.title="Merly Mentor"
-LABEL org.opencontainers.image.description="Merly Mentor is a code quality and security analysis tool that provides actionable insights to developers."
-LABEL org.opencontainers.image.version="1.0.0"
-LABEL org.opencontainers.image.url="https://github.com/merly-ai/merly-mentor"
-LABEL org.opencontainers.image.vendor="Merly, Inc."
-LABEL org.opencontainers.image.licenses="Proprietary"
-LABEL org.opencontainers.image.documentation=""
-LABEL org.opencontainers.image.maintainers="Urs C. Muff <urs.muff@merly.ai>, Justin Gottschlich <justin@merly.ai>"
-LABEL org.opencontainers.image.authors="Urs C. Muff <urs.muff@merly.ai>, Saif Zaman <saif.zaman@merly.ai>"
-
 # Install required packages
 # Install git as a runtime dependency
 RUN apt-get update && \
     apt-get install -y --no-install-recommends git ca-certificates jq unzip && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Create a non-root user and group for security
-RUN groupadd -r appgroup && useradd -r -g appgroup -d /merly -s /sbin/nologin appuser
 
 # Set working directory
 WORKDIR /app
@@ -40,23 +27,9 @@ RUN npm install --omit=dev --ignore-scripts
 # Change the workdir to the root of the app
 WORKDIR /app
 
-# Change ownership of files to the non-root user
-RUN chown -R appuser:appgroup /app
 
-# Switch to the non-root user
-USER appuser
-
-# Set correct file permissions (best practice to avoid permission issues)
-RUN chmod -R 755 /app
-
-# Ensure the binaries are executable
-RUN chmod +x /app/MerlyMentor
-RUN chmod +x /app/MentorBridge
-
-EXPOSE 3000
 
 # Declare environment variables with default values
-ENV MERLY_AI_BRIDGE_URL=http://localhost:8080
 ENV MERLY_AI_DAEMON_URL=http://localhost:4200/
 
 # Set the entrypoint, passing in the REGISTRATION_KEY environment variable
