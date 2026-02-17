@@ -35,6 +35,7 @@ Then jump to:
 - workspace-level runtime config: [`/Users/ursmuff/source/merly.ai/.codex/config.toml`](/Users/ursmuff/source/merly.ai/.codex/config.toml)
 - workspace-level instructions: [`AGENTS`](../AGENTS.md)
 - per-thread runbook helper script: [`scripts/thread-runtime.sh`](../scripts/thread-runtime.sh)
+- workspace codex baseline config: [`.codex/config.example.toml`](../.codex/config.example.toml) (copy to `.codex/config.toml` for local machine values)
 
 ## One-screen project map
 

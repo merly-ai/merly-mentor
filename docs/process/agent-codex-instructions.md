@@ -21,6 +21,7 @@ and executing threads across the Merly workspace.
 3. Read workspace instructions:
    - `/Users/ursmuff/source/merly.ai/AGENTS.md`
    - `.codex/config.toml` (via relative path `.codex/config.toml`)
+   - If `.codex/config.toml` is missing, copy `.codex/config.example.toml` and set your local `root`.
 4. Confirm target channels (`Test`, `Staging`, `Pre-Release`, `Release`).
 5. Define expected behavior and rollback boundary.
 6. Set initial evidence commands (even before edits).
@@ -146,3 +147,8 @@ the prerequisite path first.
   - Update this instruction doc first, before adding new tribal notes elsewhere.
   - Add one-line "what changed" summary in thread notes.
   - Keep examples version-agnostic and command-copyable.
+
+## 8) Shared codex config baseline
+
+Use `.codex/config.example.toml` as the portable baseline for codex/thread runtime configuration.
+Keep machine-specific values in untracked `.codex/config.toml` (for example, `root` path and local toolchain details).

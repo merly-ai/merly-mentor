@@ -42,6 +42,8 @@ MP-CodeCheckBin-MacOS-mirror/
 MP-CodeCheckBin-Suse-mirror/
 MP-CodeCheckBin-Windows-mirror/
 .codex/
+!.codex/
+!.codex/config.example.toml
 
 # Env / local config
 .env

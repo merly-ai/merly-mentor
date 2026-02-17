@@ -1,0 +1,37 @@
+[workspace]
+# Set to the absolute workspace root on your machine
+root = "/path/to/merly.ai"
+name = "merly.ai"
+primary_runtime = "scripts/thread-runtime.sh"
+
+[runtime]
+license_env_var = "MM_KEY"
+e2e_base_url = "http://localhost:3000"
+required_tooling = ["docker", "node", "npm", "git", "curl"]
+
+affinity_note = "Keep this file in sync with team guidance in docs/process/agent-codex-instructions.md"
+
+[delivery]
+default_chain = ["Test", "Staging", "Pre-Release", "Release"]
+promotion_entry = "scripts/thread-runtime.sh"
+promotion_command = "promote"
+e2e_stack_command = "smoke"
+
+[paths]
+thread_runtime_script = "scripts/thread-runtime.sh"
+e2e_repo = "mentor-tests"
+installer_repo = "Merly.Installer"
+daemon_repo = "Mentor.Bridge"
+ui_repo = "Mentor.UI"
+portal_repo = "Merly.WebPortal"
+
+[docs]
+operating_instructions = [
+  "docs/process/agent-codex-instructions.md",
+  "docs/process/thread-runtime-and-delivery.md",
+  "docs/process/daemon-test-to-pre-release.md"
+]
+thread_template = "docs/process/thread-template.md"
+
+# Optional: set MM_KEY in your shell or CI before running runtime commands.
+# MM_KEY can be generated via ./scripts/thread-runtime.sh fetch-mm-key
