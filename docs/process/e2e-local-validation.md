@@ -213,3 +213,16 @@ Run these before merging any cross-repo change:
 - Fix validated in the matrix above.
 - Change has a rollback path and a known-good baseline.
 - Release-impact checked (`Test` at minimum).
+
+## 8) Baseline run snapshot (Feb 17, 2026)
+
+Latest full suite execution against nightly containerized stack with a generated `MM_KEY`:
+
+- Result: `14 passed`, `60 failed`, `70 skipped`
+- Main failure classes:
+  - Auth API response message format changes (`details` now prefixed with `authentication failed:`).
+  - Upstream auth fixture dependency (`validCredentials` unavailable in one API test flow).
+  - UI auth flow requires local `test-results/.auth/0.json` initialization and stable login locator selection.
+- Immediate action before trusting full-suite results:
+  - Run a narrower smoke scope first (auth + one core repository flow).
+  - Capture UI fixtures expected auth seed values and locator strategy in one thread.
