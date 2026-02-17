@@ -25,6 +25,24 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Workspace checkouts and local repo mirrors (keep nested Git repositories untracked)
+Mentor.Bridge/
+Mentor.UI/
+Merly.Installer/
+Merly.WebPortal/
+debugging/
+debugging-new/
+debugging-old/
+mentor-tests/
+merly-mentor/
+MP-CodeCheckBin-MacOS/
+MP-CodeCheckBin-Suse/
+MP-CodeCheckBin-Windows/
+MP-CodeCheckBin-MacOS-mirror/
+MP-CodeCheckBin-Suse-mirror/
+MP-CodeCheckBin-Windows-mirror/
+.codex/
+
 # Env / local config
 .env
 .env.*
@@ -77,6 +95,10 @@ Cargo.lock
 .gradle/
 build/
 .gradle-cache/
+
+# Misc local/runtime tooling
+.vs/
+*.cache
 
 # Terraform / cloud
 *.tfstate
