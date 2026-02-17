@@ -1,0 +1,90 @@
+# General OS junk
+.DS_Store
+.DS_Store?
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Editors and IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+*.code-workspace
+*.iml
+
+# Logs and local process artifacts
+*.log
+logs/
+*.pid
+*.pid.lock
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Env / local config
+.env
+.env.*
+
+# Node / JS / TS
+node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+.yarnrc.yml
+.next/
+out/
+dist/
+build/
+coverage/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+.pytest_cache/
+.mypy_cache/
+.pyre/
+.pyre_configuration
+.ruff_cache/
+.tox/
+.envrc
+Pipfile.lock
+poetry.lock
+
+# Go
+bin/
+obj/
+vendor/
+
+# .NET / C# / C++
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.VC.db
+ipch/
+
+# Rust
+target/
+Cargo.lock
+
+# Java / Kotlin / Gradle
+.gradle/
+build/
+.gradle-cache/
+
+# Terraform / cloud
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# General temporary files
+*.tmp
+*.temp
+*.bak
+*~
