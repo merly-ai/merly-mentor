@@ -48,6 +48,12 @@ For endpoint checks that need a licensed key:
 MM_KEY=<valid-trial-or-license-key> ./run-public-swagger-tests.sh
 ```
 
+Public test-key reset endpoint:
+
+- `POST /api/License/ResetTestUsage?key=<MM_KEY>&who=qa-reset-bot`
+- resets remaining usage counters for an active test key
+- returns current counters (`repos`, `seats`, `watches`, `summaries`, `insights`)
+
 Relevant environment variables:
 
 - `WEBPORTAL_BASE_URL`: base host for API (`http://localhost:5000` for local runs).

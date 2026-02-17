@@ -137,6 +137,25 @@ If `ui` changed, confirm `Mentor.UI` standalone artifact is valid before promoti
 SKIP_PUBLIC_SWAGGER_SUITE=1 ./Merly.WebPortal/run-public-swagger-tests.sh
 ```
 
+### E) Reset test key quotas for local thread loops
+
+When running repeated local validation on the same QA test key:
+
+```bash
+export MM_KEY=<valid-test-key>
+export MAS_RESET_WHO="qa-reset-bot"
+./scripts/thread-runtime.sh reset-mas-test-key "$MM_KEY"
+```
+
+Defaults:
+
+- `MAS_API_BASE_URL`: `https://merlyserviceadmin.azurewebsites.net`
+- `MAS_RESET_WHO`: `qa-reset-bot`
+
+This runs:
+
+`POST /api/License/ResetTestUsage?key=<MM_KEY>&who=<who>`
+
 ## 3) GitHub Actions delivery path (source-of-truth gates)
 
 ### Channel promotion (required runtime)

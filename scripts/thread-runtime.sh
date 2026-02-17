@@ -236,6 +236,9 @@ Commands:
   collect-diagnostics [optional-reason]
     Collect current runtime artifacts (git, docker, compose logs, container state) for automated analysis.
 
+  reset-mas-test-key [<key>]
+    Reset usage counters for an existing test key via MAS public API (default key: MM_KEY).
+
   smoke
     Start container stack, run run-e2e, and keep stack running.
 
@@ -261,6 +264,8 @@ Environment:
   THREAD_RUNTIME_DIAGNOSTICS_CONTAINER_LIMIT  Maximum containers captured when compose service discovery is unavailable (default: 10)
   THREAD_RUNTIME_DIAGNOSTICS  Set to 0 to disable automatic diagnostics capture (default: 1)
   THREAD_RUNTIME_DIAGNOSTICS_ON_ERROR  Set to 0 to disable automatic error-only diagnostics (default: 1)
+  MAS_API_BASE_URL        Public MAS host for key operations (default: https://merlyserviceadmin.azurewebsites.net)
+  MAS_RESET_WHO           who parameter for /api/License/ResetTestUsage (default: qa-reset-bot)
   PUSH_TOKEN             Required by promote command for git operations
   COMPONENTS             Default components for promote command: daemon,bridge,ui
   FROM_CHANNEL           Default source channel for promote command: Test
@@ -449,6 +454,69 @@ cmd_reset_bridge_test_state() {
     "$mentor_dir/cpu_info.json" \
     "$mentor_dir/cpu_info_current.json" \
     "$mentor_dir/.pid"
+}
+
+cmd_reset_mas_test_key() {
+  local key="${1:-${MM_KEY:-}}"
+  local who="${MAS_RESET_WHO:-qa-reset-bot}"
+  local api_base="${MAS_API_BASE_URL:-https://merlyserviceadmin.azurewebsites.net}"
+
+  if [[ -z "${key}" ]]; then
+    echo "error: MM_KEY is not set and no key was provided" >&2
+    echo "Usage: ./scripts/thread-runtime.sh reset-mas-test-key [<key>]" >&2
+    exit 1
+  fi
+
+  require curl
+
+  local base
+  base="${api_base%/}"
+  local encoded_key
+  local encoded_who
+  local response_http
+  local response_body
+  local http_code
+
+  encoded_key="$(url_encode "$key")"
+  encoded_who="$(url_encode "$who")"
+  response_http="$(curl -sS -w "\nHTTP_CODE:%{http_code}" \
+    -X POST "${base}/api/License/ResetTestUsage?key=${encoded_key}&who=${encoded_who}" \
+    -H "Accept: application/json")"
+  http_code="$(printf '%s' "$response_http" | sed -n 's/^HTTP_CODE://p' | tail -n1)"
+  response_body="$(printf '%s' "$response_http" | sed '/^HTTP_CODE:/d')"
+
+  if [[ -z "${http_code}" || ! "${http_code}" =~ ^[0-9]+$ ]]; then
+    echo "error: unable to parse HTTP code from MAS response" >&2
+    exit 1
+  fi
+
+  if ((http_code < 200 || http_code >= 300)); then
+    echo "error: MAS ResetTestUsage returned HTTP ${http_code}" >&2
+    [[ -n "${response_body}" ]] && echo "details: ${response_body}" >&2
+    exit 1
+  fi
+
+  if [[ -z "${response_body}" ]]; then
+    echo "error: MAS reset response body was empty" >&2
+    exit 1
+  fi
+
+  echo "MAS reset successful (HTTP ${http_code})"
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$response_body" <<'PY'
+import sys
+import json
+body = sys.argv[1]
+try:
+    data = json.loads(body)
+except Exception:
+    print(body)
+else:
+    print(json.dumps(data, indent=2, sort_keys=True))
+PY
+  else
+    echo "${response_body}"
+  fi
 }
 
 cmd_start_stack() {
@@ -764,6 +832,10 @@ cmd_collect_diagnostics() {
     ;;
   run-bridge-swagger)
     cmd_run_bridge_swagger
+    ;;
+  reset-mas-test-key)
+    shift
+    cmd_reset_mas_test_key "$@"
     ;;
   collect-diagnostics)
     shift
