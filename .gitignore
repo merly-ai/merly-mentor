@@ -101,6 +101,7 @@ build/
 # Misc local/runtime tooling
 .vs/
 *.cache
+.thread-runtime-diagnostics/
 
 # Terraform / cloud
 *.tfstate

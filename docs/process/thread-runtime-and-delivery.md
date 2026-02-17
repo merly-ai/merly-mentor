@@ -87,6 +87,18 @@ export BRIDGE_TEST_PASSWORD=
 ./scripts/thread-runtime.sh run-bridge-swagger
 ```
 
+If you need deterministic bridge swagger runs across repeated sessions, keep:
+
+```bash
+export BRIDGE_TEST_RESET_STATE=1   # default: refreshes mentor keys/settings cache for bridge runs
+```
+
+If you intentionally want to reuse existing local mentor cache data, set:
+
+```bash
+export BRIDGE_TEST_RESET_STATE=0
+```
+
 This uses:
 
 - `mentor-tests/infrastructure/docker-compose.yml`
@@ -169,7 +181,62 @@ That command performs:
 
 Add `--execute` when you are ready to perform real promotion.
 
-## 4) Build/test CI loops for owned repos
+## 4) Thread diagnostics and failure forensics
+
+Use this whenever a command fails or a thread handoff requires deterministic evidence.
+
+### A) Default automatic diagnostics
+
+Diagnostics are enabled by default:
+
+- session base: `.thread-runtime-diagnostics`
+- default session id: `thread-YYYYMMDD-HHMMSS`
+- command logs captured under `<session>/commands/<label>.log`
+- stack/container snapshots under `<session>/runtime-.../`
+
+Every command in this script emits:
+
+- command start/end timestamps
+- command duration
+- docker compose state and logs
+- container inspect + container logs
+- git state and run context
+
+To capture an on-demand snapshot:
+
+```bash
+./scripts/thread-runtime.sh collect-diagnostics after-pipeline-run
+```
+
+### B) Diagnostics env toggles
+
+```bash
+export THREAD_RUNTIME_DIAG_DIR="${PWD}/.thread-runtime-diagnostics"
+export THREAD_RUNTIME_DIAGNOSTICS=1                  # 1=auto-collect when a command fails (ERR trap); 0=off
+export THREAD_RUNTIME_DIAGNOSTICS_ON_ERROR=1          # 1=collect on command failures; 0=off
+export THREAD_RUNTIME_DIAGNOSTICS_CONTAINER_LIMIT=20    # fallback limit if stack service list is unavailable
+export THREAD_RUNTIME_DIAG_SESSION_ID="thread-$(date +%s)" # optional deterministic session id
+```
+
+After a run, inspect:
+
+- `<session>/summary.txt`
+- `<session>/context.txt`
+- `<session>/docker-summary.txt`
+- `<session>/commands/*`
+- `<session>/mentor-tests/playwright-report`
+- `<session>/mentor-tests/test-results`
+- `<session>/runtime-*/containers/*.log`
+- `thread-runtime.sh` invocation output:
+  - `Diagnostics written to: <path>` (from collect-diagnostics)
+
+### C) Disable noisy diagnostics
+
+```bash
+export THREAD_RUNTIME_DIAGNOSTICS=0
+```
+
+## 5) Build/test CI loops for owned repos
 
 - `Mentor.Bridge/.github/workflows/all-tests.yaml` (daemon runtime and API stack)
 - `Mentor.Bridge/.github/workflows/e2e.yml` (bridge-specific E2E)
@@ -177,7 +244,7 @@ Add `--execute` when you are ready to perform real promotion.
 - `Merly.Installer/.github/workflows/*`
 - `mentor-tests/.github/workflows/e2e.yml`
 
-## 5) Standard evidence bundle per thread
+## 6) Standard evidence bundle per thread
 
 For every thread closure, include:
 
@@ -191,13 +258,14 @@ For every thread closure, include:
 - Artifacts location:
   - `Playwright` report (`mentor-tests/test-results` / `playwright-report`)
   - `push-channel.py` output
+  - thread runtime diagnostics (`.thread-runtime-diagnostics/<session>/`)
   - GitHub Actions run URLs for:
     - changed repo CI
     - push-channel run
     - installer QA run
     - e2e run
 
-## 6) Recommended thread template fields
+## 7) Recommended thread template fields
 
 Use at least:
 
@@ -208,7 +276,7 @@ Use at least:
 - CI runs to force before merge:
 - Post-deploy gate:
 
-## 7) Runtime diagram
+## 8) Runtime diagram
 
 ```mermaid
 flowchart LR

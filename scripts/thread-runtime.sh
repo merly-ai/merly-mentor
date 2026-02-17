@@ -5,10 +5,202 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INFRA_COMPOSE="${ROOT_DIR}/mentor-tests/infrastructure/docker-compose.yml"
 TEST_DIR="${ROOT_DIR}/mentor-tests"
 PUSH_CHANNEL_SCRIPT="${ROOT_DIR}/Merly.Installer/push-channel.py"
+DIAG_BASE_DIR="${THREAD_RUNTIME_DIAG_DIR:-${ROOT_DIR}/.thread-runtime-diagnostics}"
+DIAG_SESSION_ID="${THREAD_RUNTIME_DIAG_SESSION_ID:-thread-$(date '+%Y%m%d-%H%M%S')}"
+DIAG_SESSION_DIR="${DIAG_BASE_DIR}/${DIAG_SESSION_ID}"
+DIAG_AUTO="${THREAD_RUNTIME_DIAGNOSTICS:-1}"
+DIAG_AUTO_ON_ERROR="${THREAD_RUNTIME_DIAGNOSTICS_ON_ERROR:-1}"
+DIAG_CONTAINER_LIMIT="${THREAD_RUNTIME_DIAGNOSTICS_CONTAINER_LIMIT:-10}"
+LAST_DIAGNOSTICS_PATH=""
+THREAD_RUNTIME_ARGS=("$@")
+
+sanitize_segment() {
+  local input="$1"
+  printf '%s' "$input" | tr '[:upper:]' '[:lower:]' | sed 's#[^a-z0-9._-]#_#g'
+}
+
+init_diagnostics() {
+  mkdir -p "$DIAG_SESSION_DIR"
+}
+
+log_diag() {
+  local message="$1"
+  printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$message" >> "${DIAG_SESSION_DIR}/events.log"
+}
+
+run_with_diag() {
+  local label="$1"
+  local safe_label
+  safe_label="$(sanitize_segment "$label")"
+  shift
+  init_diagnostics
+  mkdir -p "${DIAG_SESSION_DIR}/commands"
+  local logfile="${DIAG_SESSION_DIR}/commands/${safe_label}.log"
+  local command_start_ts
+  local command_end_ts
+  command_start_ts="$(date '+%s')"
+  log "Running ($label): $*"
+  log_diag "command_start label=$label cmd=$*"
+  (
+    "$@"
+  ) 2>&1 | tee "$logfile"
+  local rc="${PIPESTATUS[0]}"
+  command_end_ts="$(date '+%s')"
+  local elapsed=$((command_end_ts - command_start_ts))
+  log_diag "command_end label=$label rc=$rc duration_seconds=$elapsed log=$logfile"
+  return "$rc"
+}
+
+run_with_diag_in_dir() {
+  local label="$1"
+  local workdir="$2"
+  local safe_label
+  safe_label="$(sanitize_segment "$label")"
+  shift 2
+  init_diagnostics
+  mkdir -p "${DIAG_SESSION_DIR}/commands"
+  local logfile="${DIAG_SESSION_DIR}/commands/${safe_label}.log"
+  log "Running in ${workdir} ($label): $*"
+  log_diag "command_start label=$label workdir=$workdir cmd=$*"
+  local command_start_ts
+  local command_end_ts
+  command_start_ts="$(date '+%s')"
+  (
+    cd "$workdir"
+    "$@"
+  ) 2>&1 | tee "$logfile"
+  local rc="${PIPESTATUS[0]}"
+  command_end_ts="$(date '+%s')"
+  local elapsed=$((command_end_ts - command_start_ts))
+  log_diag "command_end label=$label rc=$rc duration_seconds=$elapsed log=$logfile"
+  return "$rc"
+}
+
+collect_runtime_diagnostics() {
+  local reason="${1:-manual}"
+  local exit_code="${2:-<unknown>}"
+  local out_dir="${DIAG_SESSION_DIR}/runtime-${reason}-$(date '+%Y%m%d-%H%M%S')"
+  LAST_DIAGNOSTICS_PATH="$out_dir"
+  local ts
+  ts="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  mkdir -p "$out_dir/commands" "$out_dir/containers"
+
+  log "Collecting diagnostics to $out_dir"
+  {
+    echo "Thread runtime diagnostics"
+    echo "timestamp=${ts}"
+    echo "reason=${reason}"
+    echo "root_dir=${ROOT_DIR}"
+    echo "diag_session=${DIAG_SESSION_DIR}"
+    echo "command=$0 $*"
+    echo "MM_KEY=${MM_KEY:-<unset>}"
+    echo "CI_TEST_USER_NAME=${CI_TEST_USER_NAME:-<unset>}"
+    echo "CI_TEST_USER_EMAIL=${CI_TEST_USER_EMAIL:-<unset>}"
+    echo "BRIDGE_TEST_EMAIL=${BRIDGE_TEST_EMAIL:-<unset>}"
+    echo "BRIDGE_TEST_URL=${BRIDGE_TEST_URL:-<unset>}"
+    echo "BRIDGE_TEST_PATTERN=${BRIDGE_TEST_PATTERN:-<unset>}"
+    echo "BRIDGE_TEST_API_VERSION=${BRIDGE_TEST_API_VERSION:-<unset>}"
+    echo "BRIDGE_TEST_RESET_STATE=${BRIDGE_TEST_RESET_STATE:-<unset>}"
+    echo "THREAD_RUNTIME_DIAG_DIR=${THREAD_RUNTIME_DIAG_DIR:-<unset>}"
+    echo "THREAD_RUNTIME_DIAGNOSTICS=${THREAD_RUNTIME_DIAGNOSTICS:-<unset>}"
+    echo "THREAD_RUNTIME_DIAGNOSTICS_ON_ERROR=${THREAD_RUNTIME_DIAGNOSTICS_ON_ERROR:-<unset>}"
+    echo "THREAD_RUNTIME_DIAGNOSTICS_CONTAINER_LIMIT=${THREAD_RUNTIME_DIAGNOSTICS_CONTAINER_LIMIT:-<unset>}"
+    echo "command_exit_code=${exit_code}"
+  } > "$out_dir/context.txt"
+
+  if command -v git >/dev/null 2>&1; then
+    {
+      git -C "$ROOT_DIR" status --short
+      git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD
+      git -C "$ROOT_DIR" log -1 --oneline
+    } > "$out_dir/git.txt" 2>&1 || true
+  fi
+
+  if command -v docker >/dev/null 2>&1; then
+    {
+      docker --version
+      docker compose version
+      uname -a
+      free -h
+      df -h "${ROOT_DIR}"
+      ulimit -a
+      docker compose -f "$INFRA_COMPOSE" ps -a
+      if docker compose -f "$INFRA_COMPOSE" ps -a -q >/dev/null 2>&1; then
+        docker compose -f "$INFRA_COMPOSE" images
+      fi
+      if [[ -f "$INFRA_COMPOSE" ]]; then
+        docker compose -f "$INFRA_COMPOSE" config --services > "$out_dir/compose-services.txt" 2>&1
+      fi
+      docker ps --format '{{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Ports}}'
+      docker compose -f "$INFRA_COMPOSE" ps -a
+      docker compose -f "$INFRA_COMPOSE" logs --no-color --timestamps 2>&1 || true
+      docker compose -f "$INFRA_COMPOSE" config > "$out_dir/compose-config.yaml" 2>&1 || true
+    } > "$out_dir/docker-summary.txt" 2>&1 || true
+  fi
+
+  if command -v docker >/dev/null 2>&1; then
+    local -a cids=()
+    local name
+    local safe_name
+    mapfile -t cids < <(docker compose -f "$INFRA_COMPOSE" ps -a -q 2>/dev/null || true)
+    if (( ${#cids[@]} == 0 )); then
+      mapfile -t cids < <(docker ps -a --format '{{.ID}}' | head -n "$DIAG_CONTAINER_LIMIT" || true)
+    fi
+    for cid in "${cids[@]}"; do
+      [[ -z "$cid" ]] && continue
+      {
+        name="$(docker inspect -f '{{.Name}}' "$cid" 2>/dev/null | sed 's#^/##')"
+        safe_name="$(sanitize_segment "${name:-$cid}")"
+        docker inspect "$cid" > "$out_dir/containers/${safe_name}.json" 2>&1 || true
+        docker logs "$cid" > "$out_dir/containers/${safe_name}.log" 2>&1 || true
+      } || true
+    done
+  fi
+
+  if [[ -d "$TEST_DIR/playwright-report" ]]; then
+    mkdir -p "$out_dir/mentor-tests"
+    cp -R "$TEST_DIR/playwright-report" "$out_dir/mentor-tests/" || true
+  fi
+  if [[ -d "$TEST_DIR/test-results" ]]; then
+    mkdir -p "$out_dir/mentor-tests"
+    cp -R "$TEST_DIR/test-results" "$out_dir/mentor-tests/" || true
+  fi
+
+  if [[ -d "$ROOT_DIR/mentor-tests/.bridge-swagger-artifacts" ]]; then
+    mkdir -p "$out_dir/mentor-tests"
+    cp -R "$ROOT_DIR/mentor-tests/.bridge-swagger-artifacts" "$out_dir/mentor-tests/" || true
+  elif [[ -d "${DIAG_SESSION_DIR}/bridge-swagger" ]]; then
+    mkdir -p "$out_dir/mentor-tests"
+    cp -R "${DIAG_SESSION_DIR}/bridge-swagger" "$out_dir/mentor-tests/" || true
+  fi
+
+  if [[ -f "$out_dir/docker-summary.txt" ]]; then
+    tail -n 200 "$out_dir/docker-summary.txt" > "$out_dir/docker-summary-tail.txt" || true
+  fi
+
+  {
+    echo "command_session_args=${THREAD_RUNTIME_ARGS[*]:-<none>}"
+    echo "command_exit_code=${exit_code}"
+  } > "$out_dir/summary.txt"
+}
 
 log() {
   echo "[$(date '+%H:%M:%S')] $*"
 }
+
+diag_trap() {
+  local rc=$?
+  if [[ "$DIAG_AUTO_ON_ERROR" == "1" ]]; then
+    collect_runtime_diagnostics "error" "$rc"
+    log "Diagnostics written to: ${LAST_DIAGNOSTICS_PATH}"
+  fi
+  log "command failed with exit code ${rc}"
+  return "$rc"
+}
+
+if [[ "$DIAG_AUTO" == "1" ]]; then
+  trap diag_trap ERR
+fi
 
 require() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -41,6 +233,9 @@ Commands:
   run-bridge-swagger
     Run Mentor.Bridge public swagger API suite against the active stack.
 
+  collect-diagnostics [optional-reason]
+    Collect current runtime artifacts (git, docker, compose logs, container state) for automated analysis.
+
   smoke
     Start container stack, run run-e2e, and keep stack running.
 
@@ -62,6 +257,10 @@ Environment:
   BRIDGE_TEST_API_VERSION API version for TestSwagger_* runs (v1, v2, all)
   BRIDGE_TEST_PATTERN     go test -run pattern (default: ^TestSwagger_)
   BRIDGE_TEST_URL         Bridge base url for public swagger suite (default: http://localhost:8080)
+  THREAD_RUNTIME_DIAG_DIR  Local directory for automation diagnostics artifacts (default: .thread-runtime-diagnostics)
+  THREAD_RUNTIME_DIAGNOSTICS_CONTAINER_LIMIT  Maximum containers captured when compose service discovery is unavailable (default: 10)
+  THREAD_RUNTIME_DIAGNOSTICS  Set to 0 to disable automatic diagnostics capture (default: 1)
+  THREAD_RUNTIME_DIAGNOSTICS_ON_ERROR  Set to 0 to disable automatic error-only diagnostics (default: 1)
   PUSH_TOKEN             Required by promote command for git operations
   COMPONENTS             Default components for promote command: daemon,bridge,ui
   FROM_CHANNEL           Default source channel for promote command: Test
@@ -234,6 +433,24 @@ cmd_check() {
   log "Environment checks passed."
 }
 
+cmd_reset_bridge_test_state() {
+  local mentor_dir="${ROOT_DIR}/mentor-tests/infrastructure/mentor"
+  local reset_state="${BRIDGE_TEST_RESET_STATE:-1}"
+
+  if [[ "$reset_state" != "1" ]]; then
+    return 0
+  fi
+
+  log "Resetting mentor state artifacts for bridge swagger runs (BRIDGE_TEST_RESET_STATE=$reset_state)."
+  mkdir -p "$mentor_dir"
+  rm -f \
+    "$mentor_dir/keys.json" \
+    "$mentor_dir/settings.json" \
+    "$mentor_dir/cpu_info.json" \
+    "$mentor_dir/cpu_info_current.json" \
+    "$mentor_dir/.pid"
+}
+
 cmd_start_stack() {
   local key="${MM_KEY:-}"
   if [[ -z "${key}" ]]; then
@@ -246,7 +463,7 @@ cmd_start_stack() {
   fi
 
   log "Starting mentor-tests infrastructure..."
-  docker compose -f "$INFRA_COMPOSE" up -d
+  run_with_diag start_infra docker compose -f "$INFRA_COMPOSE" up -d
   log "Waiting for services..."
   wait_for_http "http://localhost:8080" "Bridge"
   wait_for_http "http://localhost:3000" "UI"
@@ -259,7 +476,7 @@ cmd_stop_stack() {
     exit 1
   fi
   log "Stopping mentor-tests infrastructure..."
-  docker compose -f "$INFRA_COMPOSE" down -v
+  run_with_diag stop_infra docker compose -f "$INFRA_COMPOSE" down -v
 }
 
 cmd_status() {
@@ -267,7 +484,7 @@ cmd_status() {
     echo "error: compose template missing at $INFRA_COMPOSE" >&2
     exit 1
   fi
-  docker compose -f "$INFRA_COMPOSE" ps
+  run_with_diag infra_status docker compose -f "$INFRA_COMPOSE" ps
 }
 
 cmd_run_e2e() {
@@ -289,18 +506,16 @@ cmd_run_e2e() {
     require npm
     require npx
     if [[ ! -d node_modules ]]; then
-      log "Installing dependencies..."
-      npm ci
+      run_with_diag_in_dir mentor_tests_npm_ci "$TEST_DIR" npm ci
     fi
-    log "Installing playwright browsers if needed..."
-    npx playwright install --with-deps
-    log "Running core-flow test suite..."
-    MM_KEY="$mm_key" E2E_UI_BASE_URL="$ui_url" npx playwright test
+    run_with_diag_in_dir mentor_tests_playwright_install "$TEST_DIR" npx playwright install --with-deps
+    run_with_diag_in_dir mentor_tests_core_flow "$TEST_DIR" \
+      env MM_KEY="$mm_key" E2E_UI_BASE_URL="$ui_url" npx playwright test
   )
 }
 
 cmd_run_bridge_swagger() {
-  local bridge_url="${BRIDGE_TEST_URL:-http://localhost:8080}"
+  local bridge_url="${BRIDGE_TEST_URL:-http://bridge:8080}"
   local bridge_email="${BRIDGE_TEST_EMAIL:-urs.muff@merly.ai}"
   local bridge_password="${BRIDGE_TEST_PASSWORD:-}"
   local api_version="${BRIDGE_TEST_API_VERSION:-v2}"
@@ -312,6 +527,8 @@ cmd_run_bridge_swagger() {
     "-e" "TEST_EMAIL=$bridge_email"
     "-e" "TEST_PASSWORD=$bridge_password"
     "-e" "BRIDGE_TEST_PATTERN=$pattern"
+    "-e" "BRIDGE_TEST_URL=$bridge_url"
+    "-e" "MERLY_MENTOR_DIR=/app/.mentor"
   )
 
   if [[ -z "$mm_key" ]]; then
@@ -320,16 +537,24 @@ cmd_run_bridge_swagger() {
   fi
 
   log "Preparing mentor-tests stack for Mentor.Bridge public swagger suite."
+  cmd_reset_bridge_test_state
   cmd_start_stack
 
   if [[ "${bridge_password}" == "" && "${bridge_email}" != "urs.muff@merly.ai" ]]; then
     echo "warning: BRIDGE_TEST_PASSWORD is empty; auth tests may fail for TEST_EMAIL=$bridge_email"
   fi
 
+  local bridge_swagger_report_dir="${DIAG_SESSION_DIR}/bridge-swagger"
+  mkdir -p "$bridge_swagger_report_dir"
+
   log "Running Mentor.Bridge public swagger suite from bridge service."
-  docker compose -f "$INFRA_COMPOSE" --profile bridge-swagger run --rm --no-deps \
+  run_with_diag run_bridge_swagger \
+    docker compose -f "$INFRA_COMPOSE" --profile bridge-swagger run --rm --no-deps \
     "${run_env[@]}" \
-    bridge-swagger-tests
+    -v "${bridge_swagger_report_dir}:/artifacts" \
+    -e "BRIDGE_TEST_REPORT_DIR=/artifacts" \
+    bridge-swagger-tests \
+    sh -lc 'set -o pipefail; mkdir -p "${BRIDGE_TEST_REPORT_DIR:-/tmp/bridge-swagger}"; go test -run "${BRIDGE_TEST_PATTERN:-^TestSwagger_}" -count=1 -json ./... | tee "${BRIDGE_TEST_REPORT_DIR:-/tmp/bridge-swagger}/go-test.json"'
 }
 
 cmd_smoke() {
@@ -442,7 +667,8 @@ cmd_promote() {
     log "Using latest version in source channel"
   fi
 
-  (cd "${ROOT_DIR}/Merly.Installer" && python3 push-channel.py "${push_args[@]}")
+  run_with_diag promote \
+    bash -lc "cd '${ROOT_DIR}/Merly.Installer' && python3 push-channel.py ${push_args[*]}"
 }
 
 cmd_promote_daemon_test_to_prerelease() {
@@ -510,6 +736,12 @@ cmd_promote_daemon_test_to_prerelease() {
   log "Real daemon promotion completed. Validate QA dispatch and run follow-up e2e checks."
 }
 
+cmd_collect_diagnostics() {
+  local reason="${1:-manual}"
+  collect_runtime_diagnostics "$reason"
+  log "Diagnostics written to: ${LAST_DIAGNOSTICS_PATH}"
+}
+
   case "${1:-help}" in
   check)
     cmd_check
@@ -532,6 +764,10 @@ cmd_promote_daemon_test_to_prerelease() {
     ;;
   run-bridge-swagger)
     cmd_run_bridge_swagger
+    ;;
+  collect-diagnostics)
+    shift
+    cmd_collect_diagnostics "$@"
     ;;
   smoke)
     cmd_smoke
