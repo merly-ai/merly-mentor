@@ -54,6 +54,7 @@ export MM_KEY="$(./scripts/thread-runtime.sh fetch-mm-key \
 
 # 3) Start + run e2e in one shot (default core flow)
 ./scripts/thread-runtime.sh smoke
+./Merly.WebPortal/run-public-swagger-tests.sh
 
 # 4) Stop and cleanup local stack
 ./scripts/thread-runtime.sh stop-container-stack
@@ -106,6 +107,13 @@ After local UI build:
 If `ui` changed, confirm `Mentor.UI` standalone artifact is valid before promotion:
 
 - `Mentor.UI/docs/validate-standalone-locally.md`
+
+### D) Merly.WebPortal public API loop
+
+```bash
+./Merly.WebPortal/run-public-swagger-tests.sh
+SKIP_PUBLIC_SWAGGER_SUITE=1 ./Merly.WebPortal/run-public-swagger-tests.sh
+```
 
 ## 3) GitHub Actions delivery path (source-of-truth gates)
 
@@ -167,6 +175,7 @@ For every thread closure, include:
 - Before/after validation commands:
   - `./scripts/thread-runtime.sh check`
   - `./scripts/thread-runtime.sh smoke`
+  - `./Merly.WebPortal/run-public-swagger-tests.sh` (if WebPortal changed)
   - `./scripts/thread-runtime.sh promote-daemon-test-to-prerelease` (when daemon path is used)
   - relevant per-repo build/test commands
 - Artifacts location:

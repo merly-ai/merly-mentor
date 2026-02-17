@@ -186,7 +186,9 @@ Run these before merging any cross-repo change:
 - `Mentor.UI`: `npm run lint`, `npm run build`
 - `mentor-tests`: core flow run above
 - `Merly.Installer`: packaging script/validation for changed installer behavior
-- `Merly.WebPortal`: smoke `/swagger` endpoint + target controller path
+- `Merly.WebPortal`: smoke `/swagger` endpoint + public API checks
+  - `cd Merly.WebPortal && ./run-public-swagger-tests.sh`
+  - `SKIP_PUBLIC_SWAGGER_SUITE=1 ./run-public-swagger-tests.sh` for a faster smoke pass
 
 ## 6) Failure triage playbook (fastest to slowest signal)
 

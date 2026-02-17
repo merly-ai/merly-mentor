@@ -17,6 +17,45 @@ Use cases include:
 - `Merly.WebPortal/MerlyServiceAdmin/Controllers/` for endpoint surface
 - `Merly.WebPortal/MerlyServiceAdmin/Properties/launchSettings.json` for local launch config
 
+## Public API / Swagger validation
+
+- Script: `Merly.WebPortal/run-public-swagger-tests.sh`
+- Base URL default: `https://merlyserviceadmin.azurewebsites.net`
+- Test output defaults to `${TMPDIR}/merly-webportal-swagger-tests/<timestamp>`
+
+Run smoke checks (swagger contract only):
+
+```bash
+cd /Users/ursmuff/source/merly.ai/Merly.WebPortal
+./run-public-swagger-tests.sh
+```
+
+Skip long-running checks:
+
+```bash
+SKIP_PUBLIC_SWAGGER_SUITE=1 ./run-public-swagger-tests.sh
+```
+
+Run complete public API checks (uses trial key bootstrap):
+
+```bash
+TRIAL_EMAIL='qa-test@merly.ai' TRIAL_USERNAME='QA Test User' ./run-public-swagger-tests.sh
+```
+
+For endpoint checks that need a licensed key:
+
+```bash
+MM_KEY=<valid-trial-or-license-key> ./run-public-swagger-tests.sh
+```
+
+Relevant environment variables:
+
+- `WEBPORTAL_BASE_URL`: base host for API (`http://localhost:5000` for local runs).
+- `WEBPORTAL_SWAGGER_PATH`: swagger path (`/swagger/v1/swagger.json` default).
+- `TRIAL_EMAIL` / `TRIAL_USERNAME`: used by `GETOrCreateKey` long checks.
+- `MM_KEY`: optional license key to validate `/api/GetRegistration`.
+- `SKIP_PUBLIC_SWAGGER_SUITE`: set to `1|true|yes|on` to skip long API checks.
+
 ## Swagger/API exposure
 
 - This service configures Swagger generation in `Program.cs`.
