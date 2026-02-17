@@ -11,6 +11,20 @@ Use the thread runtime helper for a repeatable local workflow:
 ./scripts/thread-runtime.sh run-e2e
 ```
 
+If Docker is not running, these commands fail early with:
+
+`Cannot connect to the Docker daemon at unix:///.../docker.sock`
+
+Start Docker Desktop first (or the host docker service), then rerun the same commands.
+
+## 0a) Docker preflight (required for containerized loops)
+
+- `docker ps` should return quickly (or at least not hang on daemon connect).
+- If `docker ps` reports connection errors, restart Docker Desktop and retry:
+  - `open -a Docker`
+  - wait until `docker ps` succeeds
+  - then continue from Step 1.
+
 Pre-check instruction summary is in [`agent-codex-instructions`](./agent-codex-instructions.md).
 
 ## 0) Prerequisites

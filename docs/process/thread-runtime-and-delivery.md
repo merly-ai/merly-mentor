@@ -26,6 +26,10 @@ chmod +x scripts/thread-runtime.sh
 ./scripts/thread-runtime.sh check
 ```
 
+```bash
+docker ps >/tmp/docker-ps.txt 2>&1 && cat /tmp/docker-ps.txt || echo "Docker daemon unavailable; start Docker Desktop (e.g. `open -a Docker`) before continuing."
+```
+
 ### Preflight license bootstrap
 
 When a valid `MM_KEY` is available on a thread, fetch it from the MAS trial registration API using the same CI identity path used by installer QA:
