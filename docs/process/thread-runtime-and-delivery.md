@@ -55,6 +55,7 @@ export MM_KEY="$(./scripts/thread-runtime.sh fetch-mm-key \
 # 3) Start + run e2e in one shot (default core flow)
 ./scripts/thread-runtime.sh smoke
 ./Merly.WebPortal/run-public-swagger-tests.sh
+./scripts/thread-runtime.sh run-bridge-swagger
 
 # 4) Stop and cleanup local stack
 ./scripts/thread-runtime.sh stop-container-stack
@@ -75,6 +76,15 @@ export MM_KEY="$(./scripts/thread-runtime.sh fetch-mm-key \
 export MM_KEY=<valid_license_key>
 ./scripts/thread-runtime.sh start-container-stack
 ./scripts/thread-runtime.sh run-e2e
+```
+
+Run only the public Bridge swagger suite against the containerized bridge image:
+
+```bash
+export MM_KEY=<valid_license_key>
+export BRIDGE_TEST_EMAIL=urs.muff@merly.ai
+export BRIDGE_TEST_PASSWORD=
+./scripts/thread-runtime.sh run-bridge-swagger
 ```
 
 This uses:

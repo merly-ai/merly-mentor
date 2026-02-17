@@ -11,6 +11,15 @@ Use the thread runtime helper for a repeatable local workflow:
 ./scripts/thread-runtime.sh run-e2e
 ```
 
+Run Bridge public swagger API suite inside the same containerized bridge flow:
+
+```bash
+export MM_KEY=<valid-license-key>
+export BRIDGE_TEST_EMAIL=urs.muff@merly.ai
+export BRIDGE_TEST_PASSWORD=
+./scripts/thread-runtime.sh run-bridge-swagger
+```
+
 If Docker is not running, these commands fail early with:
 
 `Cannot connect to the Docker daemon at unix:///.../docker.sock`

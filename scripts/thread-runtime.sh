@@ -38,6 +38,9 @@ Commands:
   run-e2e
     Run mentor-tests core-flow UI suite against the active stack.
 
+  run-bridge-swagger
+    Run Mentor.Bridge public swagger API suite against the active stack.
+
   smoke
     Start container stack, run run-e2e, and keep stack running.
 
@@ -54,6 +57,11 @@ Environment:
   CI_TEST_USER_NAME      Optional identity default for fetch-mm-key (defaults to QA Test User)
   CI_TEST_USER_EMAIL     Optional identity default for fetch-mm-key (defaults to qa-test@merly.ai)
   E2E_UI_BASE_URL        UI base url for tests (default: http://localhost:3000)
+  BRIDGE_TEST_EMAIL       Email used for Mentor.Bridge public swagger test auth
+  BRIDGE_TEST_PASSWORD    Password used for Mentor.Bridge public swagger test auth
+  BRIDGE_TEST_API_VERSION API version for TestSwagger_* runs (v1, v2, all)
+  BRIDGE_TEST_PATTERN     go test -run pattern (default: ^TestSwagger_)
+  BRIDGE_TEST_URL         Bridge base url for public swagger suite (default: http://localhost:8080)
   PUSH_TOKEN             Required by promote command for git operations
   COMPONENTS             Default components for promote command: daemon,bridge,ui
   FROM_CHANNEL           Default source channel for promote command: Test
@@ -291,6 +299,39 @@ cmd_run_e2e() {
   )
 }
 
+cmd_run_bridge_swagger() {
+  local bridge_url="${BRIDGE_TEST_URL:-http://localhost:8080}"
+  local bridge_email="${BRIDGE_TEST_EMAIL:-urs.muff@merly.ai}"
+  local bridge_password="${BRIDGE_TEST_PASSWORD:-}"
+  local api_version="${BRIDGE_TEST_API_VERSION:-v2}"
+  local pattern="${BRIDGE_TEST_PATTERN:-^TestSwagger_}"
+  local mm_key="${MM_KEY:-}"
+  local -a run_env=(
+    "-e" "TEST_BASE_URL=$bridge_url"
+    "-e" "TEST_API_VERSION=$api_version"
+    "-e" "TEST_EMAIL=$bridge_email"
+    "-e" "TEST_PASSWORD=$bridge_password"
+    "-e" "BRIDGE_TEST_PATTERN=$pattern"
+  )
+
+  if [[ -z "$mm_key" ]]; then
+    echo "error: MM_KEY is required for mentor-tests stack and bridge swagger suite" >&2
+    exit 1
+  fi
+
+  log "Preparing mentor-tests stack for Mentor.Bridge public swagger suite."
+  cmd_start_stack
+
+  if [[ "${bridge_password}" == "" && "${bridge_email}" != "urs.muff@merly.ai" ]]; then
+    echo "warning: BRIDGE_TEST_PASSWORD is empty; auth tests may fail for TEST_EMAIL=$bridge_email"
+  fi
+
+  log "Running Mentor.Bridge public swagger suite from bridge service."
+  docker compose -f "$INFRA_COMPOSE" --profile bridge-swagger run --rm --no-deps \
+    "${run_env[@]}" \
+    bridge-swagger-tests
+}
+
 cmd_smoke() {
   cmd_start_stack
   cmd_run_e2e
@@ -488,6 +529,9 @@ cmd_promote_daemon_test_to_prerelease() {
     ;;
   run-e2e)
     cmd_run_e2e
+    ;;
+  run-bridge-swagger)
+    cmd_run_bridge_swagger
     ;;
   smoke)
     cmd_smoke
