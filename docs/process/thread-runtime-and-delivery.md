@@ -43,6 +43,31 @@ export MM_KEY="$(./scripts/thread-runtime.sh fetch-mm-key \
 )"
 ```
 
+### Azure DB access preflight
+
+If local runs fail because PostgreSQL blocks your client IP, allow your current IP in the Azure PostgreSQL firewall:
+
+```bash
+./scripts/allow-azure-db-ip.sh \
+  --server merlylicenseserver-2 \
+  --resource-group <AZURE_RESOURCE_GROUP>
+```
+
+The script auto-detects single-server vs flexible-server and resolves your public IP automatically.
+If you need a specific IP or range:
+
+```bash
+./scripts/allow-azure-db-ip.sh \
+  --server merlylicenseserver-2 \
+  --resource-group <AZURE_RESOURCE_GROUP> \
+  --ip 1.2.3.4 \
+  --ip-range-end 1.2.3.9
+```
+
+Use this when you cannot connect to the MAS DB from local tooling.
+
+### Main commands
+
 ### Main commands
 
 ```bash
