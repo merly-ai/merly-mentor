@@ -9,6 +9,8 @@ DEFAULT_PROFILE="${GH_PROFILE_DEFAULT:-personal}"
 PROFILE_OVERRIDE="${GH_PROJECT_PROFILE:-}"
 PROJECT_MAP="${GH_WORKSPACE_PROFILE_MAP:-}"
 PROFILE_FILE_OVERRIDE="${GH_WORKSPACE_PROFILE_FILE:-}"
+IGNORE_ENV_TOKEN="${GHX_IGNORE_ENV_TOKEN:-1}"
+PRESERVE_ENV_TOKEN="${GHX_PRESERVE_ENV_TOKEN:-0}"
 
 usage() {
   cat <<'EOF'
@@ -26,6 +28,9 @@ Env:
   GH_WORKSPACE_PROFILE_FILE
                       Path to a workspace mapping file (default:
                       <workspace>/.codex/ghx-workspace-profiles.conf)
+  GHX_IGNORE_ENV_TOKEN Ignore GH_TOKEN/GITHUB_TOKEN by default (default: 1)
+  GHX_PRESERVE_ENV_TOKEN
+                      Keep env tokens and bypass isolation (set to 1 for opt-in use).
   GH_PROFILE_DEFAULT   Fallback profile name (default: personal)
   GH_CONFIG_PREFIX     Prefix for config folder (default: gh)
   GH_CONFIG_BASE       Base config directory (default: $XDG_CONFIG_HOME or $HOME/.config)
@@ -189,5 +194,12 @@ fi
 config_base="${GH_CONFIG_BASE:-$XDG_CONFIG_ROOT}"
 export GH_CONFIG_DIR="${config_base}/${CONFIG_PREFIX}-${profile}"
 mkdir -p "$GH_CONFIG_DIR"
+
+if [[ "$PRESERVE_ENV_TOKEN" != "1" && "$IGNORE_ENV_TOKEN" == "1" ]]; then
+  unset GH_TOKEN
+  unset GITHUB_TOKEN
+  unset GH_ENTERPRISE_TOKEN
+  unset GITHUB_ENTERPRISE_TOKEN
+fi
 
 exec gh "$@"

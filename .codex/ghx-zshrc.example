@@ -2,6 +2,12 @@
 # Example:
 #   source /Users/ursmuff/source/merly.ai/.codex/ghx-zshrc.example
 
+# Default: workspace auth uses GH config profiles and ignores GH_TOKEN.
+# Keep env token usage only when this is intentionally set.
+if [[ -z "${GHX_PRESERVE_ENV_TOKEN:-}" ]]; then
+  export GHX_IGNORE_ENV_TOKEN=1
+fi
+
 __ghx_workspace_root() {
   local path="${1:-$PWD}"
   local root

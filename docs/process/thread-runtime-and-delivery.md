@@ -160,6 +160,19 @@ It reads workspace mappings from `.codex/ghx-workspace-profiles.conf` when prese
 cp .codex/ghx-workspace-profiles.example .codex/ghx-workspace-profiles.conf
 ```
 
+If your shell startup sets `GH_TOKEN` globally (for example in `.zshrc`), it will override workspace
+account selection. The workspace helper now ignores env tokens by default:
+
+```bash
+export GHX_IGNORE_ENV_TOKEN=1
+```
+
+If you must use a specific env token for one command, set:
+
+```bash
+GHX_PRESERVE_ENV_TOKEN=1 GH_TOKEN=... gh <cmd>
+```
+
 Defaults currently include:
 
 - Workspace `merly.ai` uses:
