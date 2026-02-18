@@ -19,6 +19,7 @@ Start at:
 - [`system-overview`](./architecture/system-overview.md)
 - [`repository-index`](./repositories/index.md)
 - [`thread-template`](./runbooks/thread-template.md) when creating new threads
+- [`interserver-hosted-services-handoff`](./runbooks/interserver-hosted-services-handoff.md) for hosted production coverage
 - [`onboarding/getting-started`](./onboarding/getting-started.md)
 
 Then jump to:
