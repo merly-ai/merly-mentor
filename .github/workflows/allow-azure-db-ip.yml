@@ -27,6 +27,10 @@ on:
         description: 'Set true to list firewall rules only'
         required: false
         default: 'false'
+      delete_rule:
+        description: 'Set true to delete an existing firewall rule; requires rule_name'
+        required: false
+        default: 'false'
 
 permissions:
   contents: read
@@ -67,6 +71,7 @@ jobs:
           IP_END: ${{ github.event.inputs.ip_range_end }}
           RULE_NAME: ${{ github.event.inputs.rule_name }}
           LIST_RULES: ${{ github.event.inputs.list_rules }}
+          DELETE_RULE: ${{ github.event.inputs.delete_rule }}
         run: |
           set -euo pipefail
           EXTRA_ARGS=()
@@ -97,6 +102,10 @@ jobs:
 
           if [[ "${LIST_RULES:-false}" == "true" ]]; then
             EXTRA_ARGS+=(--list)
+          fi
+
+          if [[ "${DELETE_RULE:-false}" == "true" ]]; then
+            EXTRA_ARGS+=(--delete)
           fi
 
           bash scripts/allow-azure-db-ip.sh "${EXTRA_ARGS[@]}"

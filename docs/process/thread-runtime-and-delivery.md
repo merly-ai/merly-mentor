@@ -71,9 +71,9 @@ You can also run the same flow via GitHub Actions when automating a short, repea
 - Workflow: `.github/workflows/allow-azure-db-ip.yml`
 - Required repository secrets:
   - `AZURE_CLIENT_ID`
-  - `AZURE_TENANT_ID`
-  - `AZURE_CLIENT_SECRET`
-  - `AZURE_SUBSCRIPTION_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_CLIENT_SECRET`
+- `AZURE_SUBSCRIPTION_ID`
 - Trigger with:
 
 ```bash
@@ -84,6 +84,18 @@ gh workflow run allow-azure-db-ip.yml \
 ```
 
 To remove stale rules, run `--list` in the script with the same server/group after approval and cleanup manually in Azure.
+
+Workflow cleanup action:
+
+```bash
+gh workflow run allow-azure-db-ip.yml \
+  -f server_name=merlylicenseserver-2 \
+  -f resource_group=<AZURE_RESOURCE_GROUP> \
+  -f rule_name=codex-allow-161.97.244.35-<timestamp> \
+  -f delete_rule=true
+```
+
+(Rule-name is required for delete mode.)
 
 ### Main commands
 

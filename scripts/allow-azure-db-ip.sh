@@ -14,6 +14,7 @@ Options:
   --ip                IP address to allow (default: current public IP)
   --ip-range-end      End IP for a range (optional; if omitted defaults to --ip)
   --rule-name         Optional firewall rule name (default: codex-allow-<timestamp>)
+  --delete            Delete an existing rule by --rule-name and exit
   --flexible          Use flexible-server firewall rule command (detected automatically if omitted)
   --single             Force single-server firewall command
   --all               Allow 0.0.0.0-255.255.255.255 (debug-only)
@@ -47,6 +48,7 @@ end_ip=""
 rule_name=""
 mode="auto"
 list_only=false
+delete_only=false
 
 while (($# > 0)); do
   case "$1" in
@@ -84,6 +86,10 @@ while (($# > 0)); do
       ;;
     --rule-name=*)
       rule_name="${1#*=}"
+      shift
+      ;;
+    --delete)
+      delete_only=true
       shift
       ;;
     --flexible)
@@ -154,6 +160,27 @@ if [[ "$list_only" == true ]]; then
   else
     az postgres server firewall-rule list --resource-group "$resource_group" --server-name "$server"
   fi
+  exit 0
+fi
+
+if [[ "$delete_only" == true ]]; then
+  if [[ -z "$rule_name" ]]; then
+    echo "error: --delete requires --rule-name"
+    exit 1
+  fi
+  log "Deleting rule: $rule_name"
+  if [[ "$mode" == "flexible" ]]; then
+    az postgres flexible-server firewall-rule delete \
+      --resource-group "$resource_group" \
+      --name "$server" \
+      --rule-name "$rule_name"
+  else
+    az postgres server firewall-rule delete \
+      --resource-group "$resource_group" \
+      --server-name "$server" \
+      --name "$rule_name"
+  fi
+  echo "Deleted firewall rule: $rule_name"
   exit 0
 fi
 
