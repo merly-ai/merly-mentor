@@ -1,0 +1,44 @@
+# Source this file from ~/.zshrc to use workspace-aware gh authentication.
+# Example:
+#   source /Users/ursmuff/source/merly.ai/.codex/ghx-zshrc.example
+
+__ghx_workspace_root() {
+  local path="${1:-$PWD}"
+  local root
+
+  root="$(git -C "$path" rev-parse --show-toplevel 2>/dev/null || true)"
+  if [[ -n "$root" ]]; then
+    path="$root"
+  fi
+
+  while [[ "$path" != "/" ]]; do
+    if [[ -f "$path/.codex/ghx-workspace-profiles.example" || -f "$path/.codex/ghx-workspace-profiles.conf" ]]; then
+      echo "$path"
+      return 0
+    fi
+    if [[ -d "$path/.git" ]]; then
+      : 
+    fi
+    local parent
+    parent="$(dirname "$path")"
+    if [[ "$parent" == "$path" ]]; then
+      break
+    fi
+    path="$parent"
+  done
+}
+
+ghx() {
+  local workspace_root
+  workspace_root="$(__ghx_workspace_root)"
+
+  if [[ -n "$workspace_root" && -x "$workspace_root/scripts/ghx.sh" ]]; then
+    "$workspace_root/scripts/ghx.sh" "$@"
+    return $?
+  fi
+
+  gh "$@"
+}
+
+alias ghx-local='ghx'
+alias ghp='ghx'

@@ -169,6 +169,21 @@ Defaults currently include:
 - fallback profile (all others) uses:
   - `${XDG_CONFIG_HOME:-$HOME/.config}/gh-personal`
 
+Wire into zsh once per machine:
+
+```bash
+cat > ~/.zshrc-merly-ghx <<'EOF'
+source "/Users/ursmuff/source/merly.ai/.codex/ghx-zshrc.example"
+EOF
+source ~/.zshrc-merly-ghx
+```
+
+And run:
+
+```bash
+ghx auth status
+```
+
 Profile overrides:
 
 ```bash
