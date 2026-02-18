@@ -50,7 +50,7 @@ If local runs fail because PostgreSQL blocks your client IP, allow your current 
 ```bash
 ./scripts/allow-azure-db-ip.sh \
   --server merlylicenseserver-2 \
-  --resource-group <AZURE_RESOURCE_GROUP>
+  --resource-group LicenseService
 ```
 
 The script auto-detects single-server vs flexible-server and resolves your public IP automatically.
@@ -65,6 +65,24 @@ If you need a specific IP or range:
 ```
 
 Use this when you cannot connect to the MAS DB from local tooling.
+
+Note: firewall rule names are sanitized by default to Azure-compatible characters (`0-9`, letters, `-`, `_`, max 80).
+Avoid manually passing dots/colons in `--rule-name`.
+
+To clean up after a session:
+
+```bash
+./scripts/allow-azure-db-ip.sh \
+  --server merlylicenseserver-2 \
+  --resource-group LicenseService \
+  --list
+
+./scripts/allow-azure-db-ip.sh \
+  --server merlylicenseserver-2 \
+  --resource-group LicenseService \
+  --rule-name <RULE_NAME_FROM_LIST> \
+  --delete
+```
 
 You can also run the same flow via GitHub Actions when automating a short, repeatable IP allow run:
 

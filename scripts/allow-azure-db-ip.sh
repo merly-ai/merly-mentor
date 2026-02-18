@@ -31,6 +31,26 @@ log() {
   echo "[$(date '+%H:%M:%S')] $*"
 }
 
+suggest_resource_group() {
+  local rg_hint=""
+  rg_hint="$(az postgres flexible-server list --query "[?name=='$server'].resourceGroup" -o tsv)"
+  if [[ -n "$rg_hint" ]]; then
+    echo "hint: found flexible PostgreSQL server '$server' in resource group(s):"
+    printf '  - %s\n' $rg_hint
+    return
+  fi
+
+  rg_hint="$(az postgres server list --query "[?name=='$server'].resourceGroup" -o tsv 2>/dev/null || true)"
+  if [[ -n "$rg_hint" ]]; then
+    echo "hint: found single PostgreSQL server '$server' in resource group(s):"
+    printf '  - %s\n' $rg_hint
+    return
+  fi
+
+  echo "hint: list flexible servers in subscription:"
+  echo "  az postgres flexible-server list --query \"[].{name:name, resourceGroup:resourceGroup}\" -o table"
+}
+
 require() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "error: required command '$1' is not installed or not on PATH" >&2
@@ -140,7 +160,11 @@ if [[ -z "$end_ip" ]]; then
 fi
 
 if [[ -z "$rule_name" ]]; then
-  rule_name="codex-allow-${ip}-$(date +%Y%m%d-%H%M%S)"
+  safe_ip="$(echo "$ip" | tr '.:' '_')"
+  safe_ip="$(echo "$safe_ip" | tr -cd '[:alnum:]-_')"
+  safe_ip="$(echo "$safe_ip" | sed 's/^[^A-Za-z0-9]*//; s/[^A-Za-z0-9]*$//')"
+  safe_suffix="$(date +%Y%m%d-%H%M%S)"
+  rule_name="codex-allow-${safe_ip}-${safe_suffix}"
 fi
 
 if [[ "$mode" == "auto" ]]; then
@@ -150,6 +174,7 @@ if [[ "$mode" == "auto" ]]; then
     mode="single"
   else
     echo "error: could not find PostgreSQL server '$server' in resource group '$resource_group' (as single or flexible server)" >&2
+    suggest_resource_group
     exit 1
   fi
 fi
