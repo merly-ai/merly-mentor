@@ -411,3 +411,24 @@ flowchart LR
   P --> Q[QA trigger in mentor-tests]
   Q --> D[Document evidence + close thread]
 ```
+### Multi-repo push automation
+
+Use this helper to push the same branch across workspace repos after local validation:
+
+```bash
+# Standard org push
+./scripts/push-thread-repos.sh --remote origin --branch "${BRANCH}"
+
+# Optional: push to a personal fork for PRs
+./scripts/push-thread-repos.sh --remote fork --branch "${BRANCH}" --repo Mentor.UI
+
+# Dry-run preview
+./scripts/push-thread-repos.sh --remote origin --branch "${BRANCH}" --dry-run
+```
+
+Script behavior:
+
+- Reads repository list by default: `Mentor.Bridge`, `Mentor.UI`, `Merly.Installer`, `Merly.WebPortal`, `mentor-tests`, `merly-mentor`, `debugging`, `MP-CodeCheckBin-MacOS`, `MP-CodeCheckBin-Suse`, `MP-CodeCheckBin-Windows`.
+- Supports `--repo` to scope one repo at a time.
+- Supports `--skip-missing` when some directories are not present on that machine.
+- Supports `--no-follow-tags` when you only want branch refs.
