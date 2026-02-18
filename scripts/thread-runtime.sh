@@ -262,6 +262,7 @@ Environment:
   BRIDGE_TEST_PASSWORD    Password used for Mentor.Bridge public swagger test auth
   BRIDGE_TEST_API_VERSION API version for TestSwagger_* runs (v1, v2, all)
   BRIDGE_TEST_PATTERN     go test -run pattern (default: ^TestSwagger_)
+  BRIDGE_TEST_RUN_SETUP   Set to 0 to skip TestSetup_FromScratch pre-run (default: 1)
   BRIDGE_TEST_URL         Bridge base url for public swagger suite (default: http://localhost:8080)
   THREAD_RUNTIME_DIAG_DIR  Local directory for automation diagnostics artifacts (default: .thread-runtime-diagnostics)
   THREAD_RUNTIME_DIAGNOSTICS_CONTAINER_LIMIT  Maximum containers captured when compose service discovery is unavailable (default: 10)
@@ -567,6 +568,16 @@ cmd_reset_bridge_test_state() {
   log "Resetting mentor state artifacts for bridge swagger runs (BRIDGE_TEST_RESET_STATE=$reset_state)."
   mkdir -p "$mentor_dir"
   rm -f \
+    "$mentor_dir/users.db" \
+    "$mentor_dir/users.db-shm" \
+    "$mentor_dir/users.db-wal" \
+    "$mentor_dir/router.db" \
+    "$mentor_dir/router.db-shm" \
+    "$mentor_dir/router.db-wal" \
+    "$mentor_dir/router.db-fail" \
+    "$mentor_dir/router.db-set" \
+    "$mentor_dir/router.db-success" \
+    "$mentor_dir/router.db-set-bak" \
     "$mentor_dir/keys.json" \
     "$mentor_dir/settings.json" \
     "$mentor_dir/cpu_info.json" \
@@ -702,20 +713,25 @@ cmd_run_e2e() {
 
 cmd_run_bridge_swagger() {
   local bridge_url="${BRIDGE_TEST_URL:-http://bridge:8080}"
-  local bridge_email="${BRIDGE_TEST_EMAIL:-urs.muff@merly.ai}"
+  local bridge_email="${BRIDGE_TEST_EMAIL:-}"
   local bridge_password="${BRIDGE_TEST_PASSWORD:-}"
   local api_version="${BRIDGE_TEST_API_VERSION:-v2}"
   local pattern="${BRIDGE_TEST_PATTERN:-^TestSwagger_}"
+  local run_setup="${BRIDGE_TEST_RUN_SETUP:-1}"
   local mm_key="${MM_KEY:-}"
   local -a run_env=(
     "-e" "TEST_BASE_URL=$bridge_url"
     "-e" "TEST_API_VERSION=$api_version"
-    "-e" "TEST_EMAIL=$bridge_email"
-    "-e" "TEST_PASSWORD=$bridge_password"
     "-e" "BRIDGE_TEST_PATTERN=$pattern"
     "-e" "BRIDGE_TEST_URL=$bridge_url"
     "-e" "MERLY_MENTOR_DIR=/app/.mentor"
   )
+  if [[ -n "$bridge_email" ]]; then
+    run_env+=("-e" "TEST_EMAIL=$bridge_email")
+  fi
+  if [[ -n "$bridge_password" ]]; then
+    run_env+=("-e" "TEST_PASSWORD=$bridge_password")
+  fi
 
   if [[ -z "$mm_key" ]]; then
     echo "error: MM_KEY is required for mentor-tests stack and bridge swagger suite" >&2
@@ -726,8 +742,26 @@ cmd_run_bridge_swagger() {
   cmd_reset_bridge_test_state
   cmd_start_stack
 
-  if [[ "${bridge_password}" == "" && "${bridge_email}" != "urs.muff@merly.ai" ]]; then
-    echo "warning: BRIDGE_TEST_PASSWORD is empty; auth tests may fail for TEST_EMAIL=$bridge_email"
+  if [[ "$run_setup" == "1" ]]; then
+    log "Running Mentor.Bridge setup bootstrap before swagger suite."
+    run_with_diag run_bridge_swagger_setup \
+      docker compose -f "$INFRA_COMPOSE" --profile bridge-swagger run --rm --no-deps \
+      -e "TEST_BASE_URL=$bridge_url" \
+      -e "TEST_API_VERSION=$api_version" \
+      -e "REGISTRATION_KEY=$mm_key" \
+      -e "MERLY_MENTOR_DIR=/app/.mentor" \
+      bridge-swagger-tests \
+      bash -lc 'set -o pipefail; export PATH="/usr/local/go/bin:$PATH"; mkdir -p "${BRIDGE_TEST_REPORT_DIR:-/tmp/bridge-swagger}"; go test -run "^TestSetup_FromScratch$" -count=1 -v ./...'
+    log "Restarting bridge service to refresh mentor state after setup."
+    run_with_diag restart_bridge_for_setup \
+      docker compose -f "$INFRA_COMPOSE" restart bridge
+    wait_for_http "http://localhost:8080" "Bridge (post-setup restart)"
+  fi
+
+  if [[ "${bridge_email}" == "" ]]; then
+    echo "BRIDGE_TEST_EMAIL not set; using EMAIL from .env if present."
+  elif [[ "${bridge_password}" == "" ]]; then
+    echo "warning: BRIDGE_TEST_PASSWORD is empty for TEST_EMAIL=$bridge_email"
   fi
 
   local bridge_swagger_report_dir="${DIAG_SESSION_DIR}/bridge-swagger"
@@ -740,7 +774,41 @@ cmd_run_bridge_swagger() {
     -v "${bridge_swagger_report_dir}:/artifacts" \
     -e "BRIDGE_TEST_REPORT_DIR=/artifacts" \
     bridge-swagger-tests \
-    bash -lc 'set -o pipefail; export PATH="/usr/local/go/bin:$PATH"; mkdir -p "${BRIDGE_TEST_REPORT_DIR:-/tmp/bridge-swagger}"; go test -run "${BRIDGE_TEST_PATTERN:-^TestSwagger_}" -count=1 -json ./... | tee "${BRIDGE_TEST_REPORT_DIR:-/tmp/bridge-swagger}/go-test.json"'
+    bash -lc 'set -o pipefail; export PATH="/usr/local/go/bin:$PATH"; mkdir -p "${BRIDGE_TEST_REPORT_DIR:-/tmp/bridge-swagger}"; json_file="${BRIDGE_TEST_REPORT_DIR:-/tmp/bridge-swagger}/go-test.json"; go test -run "${BRIDGE_TEST_PATTERN:-^TestSwagger_}" -count=1 -json ./... | tee "$json_file"; test_rc=${PIPESTATUS[0]}; python3 - "$json_file" <<'"'"'PY'"'"'
+import json
+import sys
+
+json_file = sys.argv[1]
+stats = {"run": 0, "pass": 0, "fail": 0, "skip": 0}
+failures = []
+
+with open(json_file, "r", encoding="utf-8") as fh:
+    for line in fh:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except Exception:
+            continue
+        action = event.get("Action", "")
+        test = event.get("Test")
+        if not test:
+            continue
+        if action in stats:
+            stats[action] = stats.get(action, 0) + 1
+        if action == "fail":
+            failures.append(test)
+
+total = stats["pass"] + stats["fail"] + stats["skip"]
+print(f"SUMMARY: total={total} passed={stats['"'"'pass'"'"']} failed={stats['"'"'fail'"'"']} skipped={stats['"'"'skip'"'"']}")
+if failures:
+    print("FAILED_TESTS:")
+    for name in failures:
+        print(f"- {name}")
+PY
+exit "$test_rc"
+'
 }
 
 cmd_smoke() {

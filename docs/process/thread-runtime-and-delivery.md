@@ -154,6 +154,8 @@ gh workflow run allow-azure-db-ip.yml \
 ./scripts/thread-runtime.sh smoke
 ./Merly.WebPortal/run-public-swagger-tests.sh
 ./scripts/thread-runtime.sh run-bridge-swagger
+# `run-bridge-swagger` performs a bridge restart after setup so seeded mentor state
+# is always reloaded before auth API tests execute.
 
 # 4) Stop and cleanup local stack
 ./scripts/thread-runtime.sh stop-container-stack
