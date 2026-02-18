@@ -152,7 +152,15 @@ gh workflow run allow-azure-db-ip.yml \
 ```
 
 The wrapper picks auth profile from the workspace root (by nearest directory containing `.codex`)
-in the directory chain of the current repo. Defaults currently assume:
+in the directory chain of the current repo.
+
+It reads workspace mappings from `.codex/ghx-workspace-profiles.conf` when present:
+
+```bash
+cp .codex/ghx-workspace-profiles.example .codex/ghx-workspace-profiles.conf
+```
+
+Defaults currently include:
 
 - Workspace `merly.ai` uses:
   - `${XDG_CONFIG_HOME:-$HOME/.config}/gh-merly-ai`

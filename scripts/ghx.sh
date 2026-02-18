@@ -8,6 +8,7 @@ PROFILE_MAPPER="${GH_PROFILE_MAPPER:-}"
 DEFAULT_PROFILE="${GH_PROFILE_DEFAULT:-personal}"
 PROFILE_OVERRIDE="${GH_PROJECT_PROFILE:-}"
 PROJECT_MAP="${GH_WORKSPACE_PROFILE_MAP:-}"
+PROFILE_FILE_OVERRIDE="${GH_WORKSPACE_PROFILE_FILE:-}"
 
 usage() {
   cat <<'EOF'
@@ -19,12 +20,15 @@ Description:
   boundaries, with repository owner as fallback.
 
 Env:
+  GH_WORKSPACE_PROFILE_MAP
+                      Comma-separated list of workspace mappings ("workspace:profile").
+  GH_PROJECT_PROFILE   Explicit profile override
+  GH_WORKSPACE_PROFILE_FILE
+                      Path to a workspace mapping file (default:
+                      <workspace>/.codex/ghx-workspace-profiles.conf)
   GH_PROFILE_DEFAULT   Fallback profile name (default: personal)
   GH_CONFIG_PREFIX     Prefix for config folder (default: gh)
   GH_CONFIG_BASE       Base config directory (default: $XDG_CONFIG_HOME or $HOME/.config)
-  GH_PROJECT_PROFILE   Explicit profile override
-  GH_WORKSPACE_PROFILE_MAP
-                      Comma-separated list of "workspace:profile" pairs.
   GH_PROFILE_MAPPER    Optional mapping string "owner=profile" for one override case
                       "owner" mapping is used only if workspace mapping is unavailable.
 EOF
@@ -117,9 +121,26 @@ done
 
 workspace_name="$(basename "$workspace_root")"
 workspace_profile=""
+WORKSPACE_MAP_FILE="${PROFILE_FILE_OVERRIDE:-${workspace_root}/.codex/ghx-workspace-profiles.conf}"
 
 if [[ -n "${PROJECT_MAP}" ]]; then
   workspace_profile="$(resolve_custom_workspace_map "$workspace_name")"
+fi
+
+if [[ -z "${workspace_profile}" && -f "$WORKSPACE_MAP_FILE" ]]; then
+  while IFS= read -r mapping_line; do
+    mapping_line="${mapping_line%%#*}"
+    [[ -z "$mapping_line" ]] && continue
+    IFS=':' read -r map_workspace map_profile <<< "$mapping_line"
+    map_workspace="$(printf '%s' "$map_workspace" | tr -d '[:space:]')"
+    map_profile="$(printf '%s' "$map_profile" | tr -d '[:space:]')"
+    if [[ -n "$map_workspace" && -n "$map_profile" && "$map_workspace" != \#* ]]; then
+      if [[ "$workspace_name" == "$map_workspace" ]]; then
+        workspace_profile="$map_profile"
+        break
+      fi
+    fi
+  done < "$WORKSPACE_MAP_FILE"
 fi
 
 if [[ -z "${workspace_profile}" ]]; then
