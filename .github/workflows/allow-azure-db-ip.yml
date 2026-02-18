@@ -1,0 +1,102 @@
+name: Allow Azure PostgreSQL IP
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_name:
+        description: 'PostgreSQL server name (eg. merlylicenseserver-2)'
+        required: true
+        default: merlylicenseserver-2
+      resource_group:
+        description: 'Azure resource group containing the PostgreSQL server'
+        required: true
+      ip:
+        description: 'IP to allow (defaults to runner public IP)'
+        required: false
+      ip_range_end:
+        description: 'End IP for range (optional)'
+        required: false
+      rule_name:
+        description: 'Firewall rule name (optional)'
+        required: false
+      mode:
+        description: 'Server type: auto (default), flexible, or single'
+        required: false
+        default: auto
+      list_rules:
+        description: 'Set true to list firewall rules only'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+
+jobs:
+  allow-ip:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Azure CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates curl apt-transport-https lsb-release gnupg
+          sudo mkdir -p /etc/apt/keyrings
+          curl -sLS https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor | sudo tee /etc/apt/keyrings/microsoft.gpg >/dev/null
+          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ $(lsb_release -cs) main" |
+            sudo tee /etc/apt/sources.list.d/azure-cli.list
+          sudo apt-get update
+          sudo apt-get install -y azure-cli
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Run allow script
+        env:
+          MODE: ${{ github.event.inputs.mode }}
+          SERVER_NAME: ${{ github.event.inputs.server_name }}
+          RESOURCE_GROUP: ${{ github.event.inputs.resource_group }}
+          IP: ${{ github.event.inputs.ip }}
+          IP_END: ${{ github.event.inputs.ip_range_end }}
+          RULE_NAME: ${{ github.event.inputs.rule_name }}
+          LIST_RULES: ${{ github.event.inputs.list_rules }}
+        run: |
+          set -euo pipefail
+          EXTRA_ARGS=()
+
+          EXTRA_ARGS+=(--server "$SERVER_NAME")
+          EXTRA_ARGS+=(--resource-group "$RESOURCE_GROUP")
+
+          if [[ -n "${IP:-}" ]]; then
+            EXTRA_ARGS+=(--ip "$IP")
+          fi
+
+          if [[ -n "${IP_END:-}" ]]; then
+            EXTRA_ARGS+=(--ip-range-end "$IP_END")
+          fi
+
+          if [[ -n "${RULE_NAME:-}" ]]; then
+            EXTRA_ARGS+=(--rule-name "$RULE_NAME")
+          fi
+
+          case "$MODE" in
+            flexible)
+              EXTRA_ARGS+=(--flexible)
+              ;;
+            single)
+              EXTRA_ARGS+=(--single)
+              ;;
+          esac
+
+          if [[ "${LIST_RULES:-false}" == "true" ]]; then
+            EXTRA_ARGS+=(--list)
+          fi
+
+          bash scripts/allow-azure-db-ip.sh "${EXTRA_ARGS[@]}"

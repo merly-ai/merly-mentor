@@ -66,6 +66,25 @@ If you need a specific IP or range:
 
 Use this when you cannot connect to the MAS DB from local tooling.
 
+You can also run the same flow via GitHub Actions when automating a short, repeatable IP allow run:
+
+- Workflow: `.github/workflows/allow-azure-db-ip.yml`
+- Required repository secrets:
+  - `AZURE_CLIENT_ID`
+  - `AZURE_TENANT_ID`
+  - `AZURE_CLIENT_SECRET`
+  - `AZURE_SUBSCRIPTION_ID`
+- Trigger with:
+
+```bash
+gh workflow run allow-azure-db-ip.yml \
+  -f server_name=merlylicenseserver-2 \
+  -f resource_group=<AZURE_RESOURCE_GROUP> \
+  -f ip=161.97.244.35
+```
+
+To remove stale rules, run `--list` in the script with the same server/group after approval and cleanup manually in Azure.
+
 ### Main commands
 
 ### Main commands
