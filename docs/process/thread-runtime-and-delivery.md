@@ -139,6 +139,43 @@ gh workflow run allow-azure-db-ip.yml \
 
 (Rule-name is required for delete mode.)
 
+### Per-codex-project GitHub auth in automation
+
+`gh` auth is shared per-machine by default. For multi-account work, use the wrapper in this repo:
+
+```bash
+./scripts/ghx.sh auth status
+./scripts/ghx.sh workflow run allow-azure-db-ip.yml \
+  -f server_name=merlylicenseserver-2 \
+  -f resource_group=LicenseService \
+  -f ip=161.97.244.35
+```
+
+The wrapper picks auth profile from the workspace root (by nearest directory containing `.codex`)
+in the directory chain of the current repo. Defaults currently assume:
+
+- Workspace `merly.ai` uses:
+  - `${XDG_CONFIG_HOME:-$HOME/.config}/gh-merly-ai`
+- Workspace `Coherence-Network` uses:
+  - `${XDG_CONFIG_HOME:-$HOME/.config}/gh-seeker71`
+- fallback profile (all others) uses:
+  - `${XDG_CONFIG_HOME:-$HOME/.config}/gh-personal`
+
+Profile overrides:
+
+```bash
+GH_PROJECT_PROFILE=urs-muff ./scripts/ghx.sh auth status --hostname github.com
+GH_WORKSPACE_PROFILE_MAP=merly.ai:merly-ai,LegacyCodex:legacy ./scripts/ghx.sh auth status
+GH_PROFILE_MAPPER=Merly.AI=merly-ai ./scripts/ghx.sh auth status
+```
+
+You can also add per-command aliases in `.zshrc` if needed:
+
+```bash
+alias ghm='./scripts/ghx.sh'
+alias ghp='GH_PROJECT_PROFILE=urs-muff ./scripts/ghx.sh'
+```
+
 ### Main commands
 
 ### Main commands
