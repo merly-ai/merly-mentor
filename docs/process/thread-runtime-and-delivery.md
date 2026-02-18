@@ -43,6 +43,30 @@ export MM_KEY="$(./scripts/thread-runtime.sh fetch-mm-key \
 )"
 ```
 
+To avoid local test-key exhaustion, use this one command for each fresh local validation thread:
+
+```bash
+./scripts/thread-runtime.sh run-local-tests-with-public-key \
+  --username "${CI_TEST_USER_NAME:-QA Test User}" \
+  --email "${CI_TEST_USER_EMAIL:-qa-test@merly.ai}" \
+  --remote-endpoint https://merlyserviceadmin.azurewebsites.net \
+  --local-mas-endpoint http://localhost:5002 \
+  --run-e2e \
+  --run-bridge-swagger
+```
+
+This fetches a fresh trial key from public MAS, immediately resets usage counters on local MAS, sets `MM_KEY`, then runs:
+
+- `./scripts/thread-runtime.sh run-e2e`
+- `./scripts/thread-runtime.sh run-bridge-swagger`
+
+Useful flags:
+
+- `--no-reset` if you want to keep remote key usage history.
+- `--no-e2e` to only run bridge swagger.
+- `--no-bridge-swagger` to only run UI/playwright e2e.
+- `--who qa-reset-bot` to control the reset actor value.
+
 ### Azure DB access preflight
 
 If local runs fail because PostgreSQL blocks your client IP, allow your current IP in the Azure PostgreSQL firewall:
@@ -218,6 +242,7 @@ When running repeated local validation on the same QA test key:
 ```bash
 export MM_KEY=<valid-test-key>
 export MAS_RESET_WHO="qa-reset-bot"
+export MAS_API_BASE_URL="http://localhost:5002"
 ./scripts/thread-runtime.sh reset-mas-test-key "$MM_KEY"
 ```
 

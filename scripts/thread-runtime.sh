@@ -221,6 +221,9 @@ Commands:
   fetch-mm-key [--username QA Test User] [--email qa-test@merly.ai] [--endpoint https://merlyserviceadmin.azurewebsites.net]
     Fetch a valid MM_KEY from MAS TrialRegistration/GetOrCreateKey using CI defaults or provided identity.
 
+  run-local-tests-with-public-key [--username QA Test User] [--email qa-test@merly.ai] [--remote-endpoint https://merlyserviceadmin.azurewebsites.net] [--local-mas-endpoint http://localhost:5002] [--who qa-reset-bot] [--run-e2e] [--run-bridge-swagger] [--no-reset] [--no-e2e] [--no-bridge-swagger]
+    Fetch a fresh trial key from public MAS, optionally reset it on local MAS, then run e2e and/or bridge swagger suites.
+
   start-container-stack
     Start the Dockerized integration stack used by mentor-tests.
 
@@ -266,6 +269,7 @@ Environment:
   THREAD_RUNTIME_DIAGNOSTICS_ON_ERROR  Set to 0 to disable automatic error-only diagnostics (default: 1)
   MAS_API_BASE_URL        Public MAS host for key operations (default: https://merlyserviceadmin.azurewebsites.net)
   MAS_RESET_WHO           who parameter for /api/License/ResetTestUsage (default: qa-reset-bot)
+  LOCAL_MAS_API_BASE_URL  Default local MAS host for key reset in `run-local-tests-with-public-key` (default: http://localhost:5002)
   PUSH_TOKEN             Required by promote command for git operations
   COMPONENTS             Default components for promote command: daemon,bridge,ui
   FROM_CHANNEL           Default source channel for promote command: Test
@@ -424,6 +428,120 @@ cmd_fetch_mm_key() {
   fi
 
   echo "${product_key}"
+}
+
+cmd_run_local_tests_with_public_key() {
+  local username="${CI_TEST_USER_NAME:-QA Test User}"
+  local email="${CI_TEST_USER_EMAIL:-qa-test@merly.ai}"
+  local remote_endpoint="https://merlyserviceadmin.azurewebsites.net"
+  local local_endpoint="${LOCAL_MAS_API_BASE_URL:-http://localhost:5002}"
+  local who="${MAS_RESET_WHO:-qa-reset-bot}"
+  local run_e2e=true
+  local run_bridge=true
+  local do_reset=true
+
+  while (($# > 0)); do
+    case "$1" in
+      --username)
+        username="$2"
+        shift 2
+        ;;
+      --username=*)
+        username="${1#*=}"
+        shift
+        ;;
+      --email)
+        email="$2"
+        shift 2
+        ;;
+      --email=*)
+        email="${1#*=}"
+        shift
+        ;;
+      --remote-endpoint)
+        remote_endpoint="$2"
+        shift 2
+        ;;
+      --remote-endpoint=*)
+        remote_endpoint="${1#*=}"
+        shift
+        ;;
+      --local-mas-endpoint)
+        local_endpoint="$2"
+        shift 2
+        ;;
+      --local-mas-endpoint=*)
+        local_endpoint="${1#*=}"
+        shift
+        ;;
+      --who)
+        who="$2"
+        shift 2
+        ;;
+      --who=*)
+        who="${1#*=}"
+        shift
+        ;;
+      --no-reset)
+        do_reset=false
+        shift
+        ;;
+      --run-e2e)
+        run_e2e=true
+        shift
+        ;;
+      --run-bridge-swagger)
+        run_bridge=true
+        shift
+        ;;
+      --no-e2e)
+        run_e2e=false
+        shift
+        ;;
+      --no-bridge-swagger)
+        run_bridge=false
+        shift
+        ;;
+      *)
+        echo "error: unknown run-local-tests-with-public-key argument: $1" >&2
+        usage
+        exit 1
+        ;;
+    esac
+  done
+
+  local mm_key
+  mm_key="$(cmd_fetch_mm_key --username "$username" --email "$email" --endpoint "$remote_endpoint")"
+
+  if [[ -z "$mm_key" ]]; then
+    echo "error: failed to retrieve MM key for local test automation" >&2
+    exit 1
+  fi
+
+  if [[ "$do_reset" == "true" ]]; then
+    log "Resetting key usage on local MAS ${local_endpoint} for key ${mm_key}."
+    MAS_RESET_WHO="$who" MAS_API_BASE_URL="$local_endpoint" cmd_reset_mas_test_key "$mm_key"
+  else
+    log "Skipping local MAS reset."
+  fi
+
+  local previous_mm_key="${MM_KEY-}"
+  export MM_KEY="$mm_key"
+  log "Prepared local MM_KEY=${MM_KEY}"
+
+  if [[ "$run_e2e" == "true" ]]; then
+    cmd_run_e2e
+  fi
+
+  if [[ "$run_bridge" == "true" ]]; then
+    cmd_run_bridge_swagger
+  fi
+
+  if [[ -n "$previous_mm_key" ]]; then
+    export MM_KEY="$previous_mm_key"
+  else
+    unset MM_KEY
+  fi
 }
 
 cmd_check() {
@@ -817,6 +935,10 @@ cmd_collect_diagnostics() {
   fetch-mm-key)
     shift
     cmd_fetch_mm_key "$@"
+    ;;
+  run-local-tests-with-public-key)
+    shift
+    cmd_run_local_tests_with_public_key "$@"
     ;;
   start-container-stack)
     cmd_start_stack
