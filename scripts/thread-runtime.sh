@@ -740,7 +740,7 @@ cmd_run_bridge_swagger() {
     -v "${bridge_swagger_report_dir}:/artifacts" \
     -e "BRIDGE_TEST_REPORT_DIR=/artifacts" \
     bridge-swagger-tests \
-    sh -lc 'set -o pipefail; mkdir -p "${BRIDGE_TEST_REPORT_DIR:-/tmp/bridge-swagger}"; go test -run "${BRIDGE_TEST_PATTERN:-^TestSwagger_}" -count=1 -json ./... | tee "${BRIDGE_TEST_REPORT_DIR:-/tmp/bridge-swagger}/go-test.json"'
+    bash -lc 'set -o pipefail; export PATH="/usr/local/go/bin:$PATH"; mkdir -p "${BRIDGE_TEST_REPORT_DIR:-/tmp/bridge-swagger}"; go test -run "${BRIDGE_TEST_PATTERN:-^TestSwagger_}" -count=1 -json ./... | tee "${BRIDGE_TEST_REPORT_DIR:-/tmp/bridge-swagger}/go-test.json"'
 }
 
 cmd_smoke() {
