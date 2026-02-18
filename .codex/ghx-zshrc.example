@@ -8,6 +8,10 @@ if [[ -z "${GHX_PRESERVE_ENV_TOKEN:-}" ]]; then
   export GHX_IGNORE_ENV_TOKEN=1
 fi
 
+if [[ -z "${GHX_REPLACE_GH:-}" ]]; then
+  export GHX_REPLACE_GH=1
+fi
+
 __ghx_workspace_root() {
   local path="${1:-$PWD}"
   local root
@@ -22,11 +26,13 @@ __ghx_workspace_root() {
       echo "$path"
       return 0
     fi
-    if [[ -d "$path/.git" ]]; then
-      : 
+
+    local parent="${path%/*}"
+    if [[ "$parent" == "$path" ]]; then
+      break
     fi
-    local parent
-    parent="$(dirname "$path")"
+
+    parent="${parent:-/}"
     if [[ "$parent" == "$path" ]]; then
       break
     fi
@@ -52,5 +58,9 @@ alias ghp='ghx'
 # To route standard gh commands through workspace-aware auth, set this to 1:
 #   export GHX_REPLACE_GH=1
 if [[ "${GHX_REPLACE_GH:-0}" == "1" ]]; then
+  if (( ${+aliases[gh]} )); then
+    unalias gh
+  fi
+
   alias gh='ghx'
 fi

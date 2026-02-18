@@ -117,7 +117,8 @@ while [[ "$current_path" != "/" ]]; do
     workspace_root="$current_path"
     break
   fi
-  parent_path="$(dirname "$current_path")"
+  parent_path="${current_path%/*}"
+  parent_path="${parent_path:-/}"
   if [[ "$parent_path" == "$current_path" ]]; then
     break
   fi
