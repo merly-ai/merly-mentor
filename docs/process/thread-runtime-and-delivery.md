@@ -184,6 +184,12 @@ And run:
 ghx auth status
 ```
 
+If you want `gh` commands in the current shell to automatically use workspace-aware routing, enable it explicitly:
+
+```bash
+export GHX_REPLACE_GH=1
+```
+
 Profile overrides:
 
 ```bash

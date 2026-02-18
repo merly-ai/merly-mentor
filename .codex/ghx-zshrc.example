@@ -42,3 +42,9 @@ ghx() {
 
 alias ghx-local='ghx'
 alias ghp='ghx'
+
+# To route standard gh commands through workspace-aware auth, set this to 1:
+#   export GHX_REPLACE_GH=1
+if [[ "${GHX_REPLACE_GH:-0}" == "1" ]]; then
+  alias gh='ghx'
+fi
