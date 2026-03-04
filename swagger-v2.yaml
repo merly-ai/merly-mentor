@@ -72,6 +72,85 @@ info:
     - `X-RateLimit-Remaining`: Requests remaining
     - `X-RateLimit-Reset`: Unix timestamp when window resets
 
+    ### Swagger-Only Quickstart (No Prior Knowledge Required)
+
+    The sequence below is sufficient to build a client from scratch and verify the full flow
+    (auth -> repository report -> open issues/expressions -> issue insights).
+
+    1. Authenticate and store a bearer token:
+       - `POST /auth/login`
+       - Use `Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature` for all protected routes.
+    2. Register a repository to analyze:
+       - `POST /repositories` with `name` and `git_url`.
+       - Expect `202 Accepted` with `job.job_key` for async clone/scan.
+       - Read `repository_id` from response `id`.
+       - Read `job_key` from `job.job_key`, then poll `GET /jobs/{job_key}` to terminal state.
+    3. Discover the analysis context:
+       - `GET /repositories/{repository_id}/branches`, choose `branch_id`.
+       - `GET /branches/{branch_id}/rbls`, choose the `rbl_id` for your target language.
+       - Pick `rbl_id` for downstream calls.
+    4. Trigger fresh analysis snapshots for report freshness:
+       - `POST /rbls/{rbl_id}/snapshots` (use `method=single` for a simple refresh).
+       - Poll `GET /jobs/{job_key}` until status is `completed` or terminal failure (`failed`, `canceled`).
+    5. Retrieve repository reports:
+       - `GET /repositories/{repository_id}/analysis-reports`
+       - This returns repository-level reports across branches/languages.
+    6. Retrieve open issues from the latest analyzed snapshot:
+       - `GET /rbls/{rbl_id}/snapshots?sort=-id&limit=1`, choose `snapshot_id`.
+       - `GET /rbls/{rbl_id}/snapshots/{snapshot_id}/issues?status=open`.
+    7. Retrieve expressions and derive "open expressions":
+       - `GET /rbls/{rbl_id}/expressions`.
+       - Parse open issue IDs (`expression_id:index`, e.g. `321:0`) and match by `expression_id`.
+    8. Retrieve insights:
+       - Issue-scoped: `GET /rbls/{rbl_id}/issues/{issue_id}/expression-insights` (URL-encode `issue_id`, e.g. `321%3A0`)
+       - Expression-scoped: `GET /rbls/{rbl_id}/expressions/{expression_id}/insights`
+       - If response is `202`, poll `/jobs/{job_key}` and call the insight endpoint again.
+
+    ### Polling Rules
+
+    - Poll cadence: every 2-5 seconds.
+    - Terminal job statuses: `completed`, `failed`, `canceled`.
+    - Treat `failed` and `canceled` as hard failures for the current flow attempt.
+
+    ### Resource Management Map (RB/RBL/User/Repo)
+
+    - **Repositories (Repo)**:
+      - list/create: `GET/POST /repositories`
+      - read/update/delete: `GET/PUT/PATCH/DELETE /repositories/{repository_id}`
+    - **Branches (RB = RepoBranch)**:
+      - list/create under a repo: `GET/POST /repositories/{repository_id}/branches`
+      - read/delete: `GET/DELETE /branches/{branch_id}`
+    - **RBLs (RepoBranchLanguage)**:
+      - discovery: `GET /branches/{branch_id}/rbls` or `GET /rbls`
+      - read/update/delete: `GET/PATCH/DELETE /rbls/{rbl_id}`
+    - **Issues**:
+      - latest by RBL: `GET /rbls/{rbl_id}/issues`
+      - by snapshot: `GET /rbls/{rbl_id}/snapshots/{snapshot_id}/issues`
+      - single issue: `GET/PATCH /rbls/{rbl_id}/issues/{issue_id}`
+      - repository aggregate: `GET /repositories/{repository_id}/issues`
+    - **Watch configs**:
+      - list/create: `GET/POST /rbls/{rbl_id}/watch-configs`
+      - read/update/delete: `GET/PATCH/PUT/DELETE /rbls/{rbl_id}/watch-configs/{config_id}`
+    - **Files**:
+      - list/read: `GET /rbls/{rbl_id}/files`, `GET /rbls/{rbl_id}/files/{file_id}`
+      - version history: `GET /rbls/{rbl_id}/files/{file_id}/versions`
+      - snapshot view: `GET /rbls/{rbl_id}/snapshots/{snapshot_id}/file-versions`
+    - **Expressions**:
+      - list/read: `GET /rbls/{rbl_id}/expressions`, `GET /rbls/{rbl_id}/expressions/{expression_id}`
+      - snapshot view: `GET /rbls/{rbl_id}/snapshots/{snapshot_id}/expressions`
+      - insights: `GET /rbls/{rbl_id}/issues/{issue_id}/expression-insights`,
+        `GET /rbls/{rbl_id}/expressions/{expression_id}/insights`
+    - **Users**:
+      - list/create: `GET/POST /users`
+      - read/update/delete: `GET/PATCH/DELETE /users/{user_id}`
+      - password flows: `PUT /users/{user_id}/password`, `POST /users/password-reset`
+
+    ### License Quota Behavior
+
+    - Repository/seat limits are enforced per **license key**, not per user identity.
+    - When quota is exhausted, repository/user creation endpoints return clear `400` errors
+      from the daemon/backend (for example, `No Repos Remaining`).
+
   contact:
     name: Merly.ai API Support
     email: support@merly.ai
@@ -86,6 +165,8 @@ servers:
     description: Legacy API v1 endpoint (deprecated)
 
 tags:
+  - name: Health
+    description: Service and daemon health state
   - name: Authentication
     description: User authentication and token management
   - name: Repositories
@@ -123,6 +204,27 @@ tags:
 
 paths:
   # ---------------------------------------------------------------------------
+  # Health Check
+  # ---------------------------------------------------------------------------
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check endpoint
+      description: |
+        Returns the health status of the bridge and daemon.
+        This endpoint does not require authentication.
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Health payload (bridge always returns HTTP 200 and encodes unhealthy state in `status`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+  # ---------------------------------------------------------------------------
   # Authentication
   # ---------------------------------------------------------------------------
   /auth/login:
@@ -141,6 +243,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: "qa-test@merly.ai"
+              password: "StrongPassword!123"
       responses:
         '200':
           description: Authentication successful
@@ -148,6 +253,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthTokens'
+              example:
+                access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.access.1709491200"
+                refresh_token: "rt_3b6f72e0e7b94bb4b1833aa9f2f6a08c"
+                token_type: "Bearer"
+                expires_in: 900
         '401':
           $ref: '#/components/responses/Unauthorized'
         '422':
@@ -223,6 +333,29 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/Repository'
+              example:
+                data:
+                  - id: 123
+                    name: "mentor-service"
+                    description: "Primary service repository"
+                    git_url: "https://github.com/merly-ai/mentor-service.git"
+                    default_branch: "main"
+                    status: "active"
+                    rbl_id: 789
+                    updated_at: "2026-03-02T18:45:21Z"
+                    _links:
+                      self: "/api/v2/repositories/123"
+                      branches: "/api/v2/repositories/123/branches"
+                      issues: "/api/v2/repositories/123/issues"
+                pagination:
+                  total: 1
+                  limit: 20
+                  has_more: false
+                  next_cursor: null
+                _links:
+                  self: "/api/v2/repositories?limit=20"
+                  next: null
+                  prev: null
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -233,28 +366,72 @@ paths:
       description: |
         Adds an existing git repository to the system for analysis.
         
-        The system will clone the repository and begin initial scanning.
+        This is an asynchronous operation. The API returns `202 Accepted` and includes
+        a `job.job_key` to track clone progress via `/jobs/{job_key}`.
+
+        The system will clone the repository and begin initial scanning in the background.
         Use the returned `job_key` to track clone progress via `/jobs/{job_key}`.
+
+        Typical client behavior:
+        1) create repository
+        2) poll clone job to `completed`
+        3) list repository branches
+        4) list branch RBLs to obtain `rbl_id`
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateRepositoryRequest'
+            examples:
+              github_public_repo:
+                summary: Register a public GitHub repository
+                value:
+                  name: "github-hub"
+                  git_url: "https://github.com/github/hub.git"
+                  description: "GitHub CLI helper repository"
       responses:
-        '201':
-          description: Repository created, cloning initiated
-          headers:
-            Location:
-              schema:
-                type: string
-              description: URL of the created repository
+        '202':
+          description: Repository accepted; clone/scan job queued
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/RepositoryWithJob'
+              example:
+                id: 11
+                name: "github-hub"
+                description: "A command-line tool that makes git easier to use with GitHub."
+                git_url: "https://github.com/github/hub.git"
+                default_branch: "master"
+                status: "cloning"
+                source_root: "/opt/merly/git-root/github-hub"
+                git_root: "/opt/merly/git-root/github-hub/.git"
+                rbl_id: 11
+                updated_at: "2026-03-03T20:02:02Z"
+                _links:
+                  self: "/api/v2/repositories/11"
+                  branches: "/api/v2/repositories/11/branches"
+                  rbls: "/api/v2/branches/11/rbls"
+                job:
+                  job_key: "r-11-rb-11-rbl-11@clone"
+                  status: "pending"
+                  message: "clone queued"
+                  _links:
+                    job: "/api/v2/jobs/r-11-rb-11-rbl-11@clone"
         '400':
-          $ref: '#/components/responses/BadRequest'
+          description: Invalid repository payload or daemon-level repository creation rejection
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              examples:
+                license_repo_limit_reached:
+                  summary: License quota prevents additional repositories
+                  value:
+                    type: "operation_failed"
+                    title: "v2 repository POST failed"
+                    status: 400
+                    detail: "map[err:true status:\"RetCode=400, out=No Repos Remaining\"]"
         '401':
           $ref: '#/components/responses/Unauthorized'
         '409':
@@ -278,6 +455,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Repository'
+              example:
+                id: 123
+                name: "mentor-service"
+                description: "Primary service repository"
+                git_url: "https://github.com/merly-ai/mentor-service.git"
+                default_branch: "main"
+                status: "active"
+                rbl_id: 789
+                auto_update_interval: 60
+                _links:
+                  self: "/api/v2/repositories/123"
+                  branches: "/api/v2/repositories/123/branches"
+                  issues: "/api/v2/repositories/123/issues"
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -294,6 +484,12 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/UpdateRepositoryRequest'
+            example:
+              name: "mentor-service"
+              description: "Primary service repository (updated)"
+              default_branch: "main"
+              source_root: "/workspace/mentor-service"
+              auto_update_interval: 60
       responses:
         '200':
           description: Repository updated
@@ -301,6 +497,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Repository'
+              example:
+                id: 123
+                name: "mentor-service"
+                description: "Primary service repository (updated)"
+                git_url: "https://github.com/merly-ai/mentor-service.git"
+                default_branch: "main"
+                status: "active"
+                auto_update_interval: 60
+                updated_at: "2026-03-03T20:15:00Z"
+                _links:
+                  self: "/api/v2/repositories/123"
+                  branches: "/api/v2/repositories/123/branches"
+                  issues: "/api/v2/repositories/123/issues"
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -321,6 +530,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/PatchRepositoryRequest'
+            example:
+              description: "Managed by platform team"
+              auto_update_interval: 30
       responses:
         '200':
           description: Repository updated
@@ -328,6 +540,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Repository'
+              example:
+                id: 123
+                name: "mentor-service"
+                description: "Managed by platform team"
+                git_url: "https://github.com/merly-ai/mentor-service.git"
+                default_branch: "main"
+                status: "active"
+                auto_update_interval: 30
+                updated_at: "2026-03-03T20:16:00Z"
+                _links:
+                  self: "/api/v2/repositories/123"
+                  branches: "/api/v2/repositories/123/branches"
+                  issues: "/api/v2/repositories/123/issues"
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -361,7 +586,9 @@ paths:
       tags: [Branches]
       operationId: listRepositoryBranches
       summary: List branches for a repository
-      description: Retrieves all branches tracked for analysis in this repository.
+      description: |
+        Retrieves all branches tracked for analysis in this repository.
+        Call this after the repository clone job has completed.
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -380,6 +607,26 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/Branch'
+              example:
+                data:
+                  - id: 456
+                    repository_id: 123
+                    name: "main"
+                    last_commit_sha: "abc123def456"
+                    is_default: true
+                    lifetime_mentor_score: 81.2
+                    _links:
+                      self: "/api/v2/branches/456"
+                      rbls: "/api/v2/branches/456/rbls"
+                pagination:
+                  total: 1
+                  limit: 20
+                  has_more: false
+                  next_cursor: null
+                _links:
+                  self: "/api/v2/repositories/123/branches?limit=20"
+                  next: null
+                  prev: null
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -396,6 +643,8 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateBranchRequest'
+            example:
+              name: "release/2026-03"
       responses:
         '201':
           description: Branch added for analysis
@@ -408,12 +657,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Branch'
+              example:
+                id: 460
+                repository_id: 123
+                name: "release/2026-03"
+                last_commit_sha: "f1a2b3c4d5e6"
+                is_default: false
+                lifetime_mentor_score: null
+                _links:
+                  self: "/api/v2/branches/460"
+                  rbls: "/api/v2/branches/460/rbls"
         '202':
           description: Branch not yet discovered; fetch queued. Retry after job completion.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/JobAccepted'
+              example:
+                job_key: "r-123-rb-460-rbl-0@fetch_branches"
+                status: "pending"
+                message: "Branch discovery queued"
+                _links:
+                  job: "/api/v2/jobs/r-123-rb-460-rbl-0@fetch_branches"
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -439,6 +704,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Branch'
+              example:
+                id: 456
+                repository_id: 123
+                name: "main"
+                last_commit_sha: "abc123def456"
+                is_default: true
+                lifetime_mentor_score: 81.2
+                _links:
+                  self: "/api/v2/branches/456"
+                  rbls: "/api/v2/branches/456/rbls"
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -471,6 +746,10 @@ paths:
       description: |
         Retrieves all RBL (Repository-Branch-Language) analysis contexts for a branch.
         Each detected programming language in the branch has its own RBL.
+
+        Use this route when branch context is already known and you need the `rbl_id`
+        for downstream endpoints (`/snapshots`, `/issues`, `/expressions`, `/reports`).
+        Call this after branch discovery is complete.
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -488,6 +767,28 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/RBL'
+              example:
+                data:
+                  - id: 789
+                    repository_id: 123
+                    branch_id: 456
+                    language: "PYTHON"
+                    status: "active"
+                    last_score: 80.6
+                    last_issue_count: 17
+                    _links:
+                      self: "/api/v2/rbls/789"
+                      snapshots: "/api/v2/rbls/789/snapshots"
+                      issues: "/api/v2/rbls/789/issues"
+                pagination:
+                  total: 1
+                  limit: 20
+                  has_more: false
+                  next_cursor: null
+                _links:
+                  self: "/api/v2/branches/456/rbls?limit=20"
+                  next: null
+                  prev: null
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -501,6 +802,12 @@ paths:
       description: |
         Retrieves all RBLs the user has access to across all repositories.
         Useful for dashboards showing analysis status across multiple projects.
+
+        This is the primary discovery endpoint for finding an `rbl_id` before calling:
+        - `/rbls/{rbl_id}/snapshots` (refresh analysis / reports)
+        - `/rbls/{rbl_id}/issues` (open issue queries)
+        - `/rbls/{rbl_id}/expressions` (expression queries)
+        - `/rbls/{rbl_id}/reports` and `/rbls/{rbl_id}/analysis-reports` (report retrieval)
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -511,11 +818,13 @@ paths:
           schema:
             type: string
             enum: [C, CPP, PYTHON, JAVA, JAVASCRIPT, TYPESCRIPT, GO, RUST, CSHARP, RUBY, PHP, SWIFT, KOTLIN]
+            example: "PYTHON"
           description: Filter by programming language
         - name: repository_id
           in: query
           schema:
             type: integer
+            example: 123
           description: Filter by repository ID
       responses:
         '200':
@@ -531,6 +840,28 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/RBL'
+              example:
+                data:
+                  - id: 789
+                    repository_id: 123
+                    branch_id: 456
+                    language: "PYTHON"
+                    status: "active"
+                    last_score: 80.6
+                    last_issue_count: 17
+                    _links:
+                      self: "/api/v2/rbls/789"
+                      snapshots: "/api/v2/rbls/789/snapshots"
+                      issues: "/api/v2/rbls/789/issues"
+                pagination:
+                  total: 1
+                  limit: 20
+                  has_more: false
+                  next_cursor: null
+                _links:
+                  self: "/api/v2/rbls?repository_id=123&language=PYTHON&limit=20"
+                  next: null
+                  prev: null
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -552,6 +883,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RBL'
+              example:
+                id: 789
+                repository_id: 123
+                branch_id: 456
+                language: "PYTHON"
+                status: "active"
+                last_score: 80.6
+                last_issue_count: 17
+                _links:
+                  self: "/api/v2/rbls/789"
+                  snapshots: "/api/v2/rbls/789/snapshots"
+                  issues: "/api/v2/rbls/789/issues"
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -568,6 +911,8 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/PatchRBLRequest'
+            example:
+              status: "active"
       responses:
         '200':
           description: RBL updated
@@ -575,6 +920,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RBL'
+              example:
+                id: 789
+                repository_id: 123
+                branch_id: 456
+                language: "PYTHON"
+                status: "active"
+                last_score: 81.3
+                last_issue_count: 15
+                _links:
+                  self: "/api/v2/rbls/789"
+                  snapshots: "/api/v2/rbls/789/snapshots"
+                  issues: "/api/v2/rbls/789/issues"
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -659,12 +1016,39 @@ paths:
         - `count`: Create N snapshots at evenly-spaced commits
         - `duration`: Create snapshots at commits within last N days
         - `ref`: Analyze at specific git ref (commit SHA, tag, branch)
+
+        For a simple "refresh latest RBL report" workflow, prefer `method=single`.
+
+        **Report generation note**: this endpoint is the report-refresh trigger for RBL workflows.
+        After the snapshot job completes, fetch updated report data from:
+        - `/rbls/{rbl_id}/reports`
+        - `/rbls/{rbl_id}/analysis-reports`
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateSnapshotRequest'
+            examples:
+              head_snapshot:
+                summary: Analyze current HEAD (recommended default for report refresh)
+                value:
+                  method: "single"
+              commit_count:
+                summary: Generate 10 evenly-spaced snapshots
+                value:
+                  method: "count"
+                  value: 10
+              recent_duration:
+                summary: Generate snapshots from the last 30 days
+                value:
+                  method: "duration"
+                  value: 30
+              specific_ref:
+                summary: Analyze a specific branch/tag/commit
+                value:
+                  method: "ref"
+                  ref: "main"
       responses:
         '202':
           description: Snapshot creation job initiated
@@ -672,6 +1056,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JobAccepted'
+              example:
+                job_key: "r-123-rb-456-rbl-789@infer_points"
+                status: "pending"
+                message: "Request queued"
+                _links:
+                  job: "/api/v2/jobs/r-123-rb-456-rbl-789@infer_points"
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -698,20 +1088,25 @@ paths:
         
         **Note**: This endpoint returns issues from the most recent snapshot.
         For issues from a specific snapshot, use `/rbls/{rbl_id}/snapshots/{snapshot_id}/issues`.
+        To fetch open issues only, use `status=open`.
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Sort'
         - name: severity
           in: query
+          description: Filter issues by severity level.
           schema:
             type: string
             enum: [critical, high, medium, low]
+            example: "high"
         - name: status
           in: query
           schema:
             type: string
             enum: [open, acknowledged, resolved, ignored]
+            example: "open"
+          description: Issue workflow status. Use `open` to fetch unresolved issues.
         - name: file_path
           in: query
           schema:
@@ -719,8 +1114,10 @@ paths:
           description: Filter by file path (supports wildcards)
         - name: assignee_id
           in: query
+          description: Filter issues assigned to a specific user ID.
           schema:
             type: integer
+            example: 7
       responses:
         '200':
           description: List of issues
@@ -735,6 +1132,38 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/Issue'
+              example:
+                data:
+                  - id: "321:0"
+                    repository_id: 123
+                    snapshot_id: 1011
+                    expression_instance_id: 5551
+                    severity: "high"
+                    status: "open"
+                    action: "investigate"
+                    file_path: "src/security/auth.py"
+                    file_line: 184
+                    file_column: 12
+                    snippet: "token = verify_token(request.headers[\"Authorization\"])"
+                    comment: null
+                    category_id: 4
+                    reporter_id: null
+                    reported_at: null
+                    assignee_id: 7
+                    assigned_at: "2026-03-02T19:00:00Z"
+                    updated_at: "2026-03-02T19:00:00Z"
+                    _links:
+                      self: "/api/v2/rbls/789/issues/321:0"
+                      insights: "/api/v2/rbls/789/issues/321:0/expression-insights"
+                pagination:
+                  total: 1
+                  limit: 20
+                  has_more: false
+                  next_cursor: null
+                _links:
+                  self: "/api/v2/rbls/789/issues?status=open&limit=20"
+                  next: null
+                  prev: null
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -761,6 +1190,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Issue'
+              example:
+                id: "321:0"
+                repository_id: 123
+                snapshot_id: 1011
+                expression_instance_id: 5551
+                severity: "high"
+                status: "open"
+                action: "investigate"
+                file_path: "src/security/auth.py"
+                file_line: 184
+                file_column: 12
+                snippet: "token = verify_token(request.headers[\"Authorization\"])"
+                comment: null
+                assignee_id: 7
+                _links:
+                  self: "/api/v2/rbls/789/issues/321:0"
+                  insights: "/api/v2/rbls/789/issues/321:0/expression-insights"
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -782,6 +1228,11 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/PatchIssueRequest'
+            example:
+              status: "acknowledged"
+              assignee_id: 7
+              action: "investigate"
+              comment: "Assigned to platform security queue"
       responses:
         '200':
           description: Issue updated
@@ -789,12 +1240,33 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Issue'
+              example:
+                id: "321:0"
+                repository_id: 123
+                snapshot_id: 1011
+                expression_instance_id: 5551
+                severity: "high"
+                status: "acknowledged"
+                action: "investigate"
+                comment: "Assigned to platform security queue"
+                assignee_id: 7
+                _links:
+                  self: "/api/v2/rbls/789/issues/321:0"
+                  insights: "/api/v2/rbls/789/issues/321:0/expression-insights"
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          description: Internal processing error while applying or reloading issue state
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
 
   /rbls/{rbl_id}/snapshots/{snapshot_id}:
     parameters:
@@ -855,20 +1327,25 @@ paths:
         
         **Note**: Snapshot IDs are unique only within an RBL context, so the RBL ID
         must be specified in the path.
+        This endpoint provides deterministic issue retrieval for a specific analysis run.
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Sort'
         - name: severity
           in: query
+          description: Filter issues by severity level.
           schema:
             type: string
             enum: [critical, high, medium, low]
+            example: "high"
         - name: status
           in: query
+          description: Filter issues by workflow status.
           schema:
             type: string
             enum: [open, acknowledged, resolved, ignored]
+            example: "open"
         - name: file_path
           in: query
           schema:
@@ -876,8 +1353,10 @@ paths:
           description: Filter by file path (supports wildcards)
         - name: assignee_id
           in: query
+          description: Filter issues assigned to a specific user ID.
           schema:
             type: integer
+            example: 7
       responses:
         '200':
           description: List of issues
@@ -892,6 +1371,25 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/Issue'
+              example:
+                data:
+                  - id: "321:0"
+                    repository_id: 123
+                    snapshot_id: 1011
+                    expression_instance_id: 5551
+                    severity: "high"
+                    status: "open"
+                    action: "investigate"
+                    file_path: "src/security/auth.py"
+                pagination:
+                  total: 1
+                  limit: 20
+                  has_more: false
+                  next_cursor: null
+                _links:
+                  self: "/api/v2/rbls/789/snapshots/1011/issues?status=open&limit=20"
+                  next: null
+                  prev: null
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -914,17 +1412,23 @@ paths:
         - $ref: '#/components/parameters/Sort'
         - name: severity
           in: query
+          description: Filter issues by severity level.
           schema:
             type: string
             enum: [critical, high, medium, low]
+            example: "high"
         - name: language
           in: query
+          description: Restrict issues to a specific language (for example, `go`, `python`).
           schema:
             type: string
+            example: "go"
         - name: branch_id
           in: query
+          description: Restrict issues to snapshots from a specific branch ID.
           schema:
             type: integer
+            example: 456
       responses:
         '200':
           description: List of issues
@@ -939,6 +1443,24 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/Issue'
+              example:
+                data:
+                  - id: "321:0"
+                    repository_id: 123
+                    snapshot_id: 1011
+                    severity: "high"
+                    status: "open"
+                    action: "investigate"
+                    file_path: "src/security/auth.py"
+                pagination:
+                  total: 1
+                  limit: 20
+                  has_more: false
+                  next_cursor: null
+                _links:
+                  self: "/api/v2/repositories/123/issues?severity=high&limit=20"
+                  next: null
+                  prev: null
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -968,6 +1490,9 @@ paths:
         - Repository cloning (`clone`)
         - Snapshot creation (`infer_points`)
         - Insight generation (`generate_insight`)
+
+        Terminal statuses are: `completed`, `failed`, and `canceled`.
+        A typical poll cadence is every 2-5 seconds until terminal state.
       responses:
         '200':
           description: Job status
@@ -975,6 +1500,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Job'
+              example:
+                job_key: "r-123-rb-456-rbl-789@infer_points"
+                status: "running"
+                action: "infer_points"
+                description: "Generating snapshots for RBL 789"
+                progress: 45
+                error_message: null
+                repository_id: 123
+                branch_id: 456
+                rbl_id: 789
+                started_at: "2026-03-02T19:05:00Z"
+                finished_at: null
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -1027,9 +1564,11 @@ paths:
         - $ref: '#/components/parameters/Sort'
         - name: role
           in: query
+          description: Filter users by role.
           schema:
             type: string
             enum: [developer, lead, admin, owner]
+            example: "admin"
       responses:
         '200':
           description: List of users
@@ -1044,6 +1583,24 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/User'
+              example:
+                data:
+                  - id: 7
+                    name: "Platform Admin"
+                    email: "admin@merly.ai"
+                    role: "admin"
+                    active: true
+                    _links:
+                      self: "/api/v2/users/7"
+                pagination:
+                  total: 1
+                  limit: 20
+                  has_more: false
+                  next_cursor: null
+                _links:
+                  self: "/api/v2/users?limit=20"
+                  next: null
+                  prev: null
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -1060,6 +1617,11 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateUserRequest'
+            example:
+              name: "New Engineer"
+              email: "new.engineer@merly.ai"
+              role: "developer"
+              password: "StrongPassword!123"
       responses:
         '201':
           description: User created
@@ -1067,6 +1629,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/User'
+              example:
+                id: 18
+                name: "New Engineer"
+                email: "new.engineer@merly.ai"
+                role: "developer"
+                active: true
+                _links:
+                  self: "/api/v2/users/18"
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1084,6 +1654,9 @@ paths:
       tags: [Users]
       operationId: getUser
       summary: Get user details
+      description: |
+        Retrieves a single user's profile details, including role and last update timestamp.
+        Use this endpoint after listing users when you need a full record for one account.
       responses:
         '200':
           description: User details
@@ -1091,6 +1664,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/User'
+              example:
+                id: 7
+                name: "Platform Admin"
+                email: "admin@merly.ai"
+                role: "admin"
+                active: true
+                _links:
+                  self: "/api/v2/users/7"
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -1109,6 +1690,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/PatchUserRequest'
+            example:
+              role: "lead"
+              active: true
       responses:
         '200':
           description: User updated
@@ -1116,6 +1700,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/User'
+              example:
+                id: 18
+                name: "New Engineer"
+                email: "new.engineer@merly.ai"
+                role: "lead"
+                active: true
+                _links:
+                  self: "/api/v2/users/18"
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1262,6 +1854,23 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/File'
+              example:
+                data:
+                  - id: 41
+                    rbl_id: 789
+                    path: "src/security/auth.py"
+                    extension: ".py"
+                    total_lines: 420
+                    code_lines: 331
+                pagination:
+                  total: 1
+                  limit: 20
+                  has_more: false
+                  next_cursor: null
+                _links:
+                  self: "/api/v2/rbls/789/files?limit=20"
+                  next: null
+                  prev: null
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -1295,6 +1904,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/File'
+              example:
+                id: 41
+                rbl_id: 789
+                path: "src/security/auth.py"
+                extension: ".py"
+                total_lines: 420
+                code_lines: 331
+                expressions_count: 14
+                _links:
+                  self: "/api/v2/rbls/789/files/41"
+                  versions: "/api/v2/rbls/789/files/41/versions"
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -1339,6 +1959,24 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/FileVersion'
+              example:
+                data:
+                  - id: 8401
+                    file_id: 41
+                    snapshot_id: 1011
+                    commit_sha: "abc123def456"
+                    committed_at: "2026-03-02T17:30:00Z"
+                    lines_added: 10
+                    lines_removed: 2
+                pagination:
+                  total: 1
+                  limit: 20
+                  has_more: false
+                  next_cursor: null
+                _links:
+                  self: "/api/v2/rbls/789/files/41/versions?limit=20"
+                  next: null
+                  prev: null
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -1378,6 +2016,24 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/FileVersion'
+              example:
+                data:
+                  - id: 8401
+                    file_id: 41
+                    snapshot_id: 1011
+                    commit_sha: "abc123def456"
+                    committed_at: "2026-03-02T17:30:00Z"
+                    lines_added: 10
+                    lines_removed: 2
+                pagination:
+                  total: 1
+                  limit: 20
+                  has_more: false
+                  next_cursor: null
+                _links:
+                  self: "/api/v2/rbls/789/snapshots/1011/file-versions?limit=20"
+                  next: null
+                  prev: null
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -1398,6 +2054,12 @@ paths:
         Retrieves all code expressions (patterns) detected in an RBL.
         Expressions represent code patterns identified by the analysis engine,
         including their scores, costs, and classifications.
+
+        **Open expressions note**: this endpoint does not provide an `open` status parameter.
+        If you need only expressions tied to open issues:
+        1) call `/rbls/{rbl_id}/issues?status=open`
+        2) parse `issue_id` values (`expression_id:index`)
+        3) match those `expression_id` values against this expression list (or call expression-by-id routes).
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -1406,12 +2068,14 @@ paths:
           in: query
           schema:
             type: integer
+            example: 4
           description: Filter by expression class
         - name: min_score
           in: query
           schema:
             type: number
             format: float
+            example: 0.5
           description: Filter by minimum score
       responses:
         '200':
@@ -1427,6 +2091,29 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/Expression'
+              example:
+                data:
+                  - id: 321
+                    rbl_id: 789
+                    snippet_id: 4451
+                    snippet_text: "if token and token.is_valid():"
+                    score: 0.72
+                    cost: 14.3
+                    expression_class: 4
+                    expression_type: 2
+                    state: 1
+                    _links:
+                      self: "/api/v2/rbls/789/expressions/321"
+                      insights: "/api/v2/rbls/789/expressions/321/insights"
+                pagination:
+                  total: 1
+                  limit: 20
+                  has_more: false
+                  next_cursor: null
+                _links:
+                  self: "/api/v2/rbls/789/expressions?min_score=0.5&limit=20"
+                  next: null
+                  prev: null
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -1460,6 +2147,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Expression'
+              example:
+                id: 321
+                rbl_id: 789
+                snippet_id: 4451
+                snippet_text: "if token and token.is_valid():"
+                score: 0.72
+                cost: 14.3
+                expression_class: 4
+                expression_type: 2
+                state: 1
+                _links:
+                  self: "/api/v2/rbls/789/expressions/321"
+                  insights: "/api/v2/rbls/789/expressions/321/insights"
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -1498,6 +2198,22 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/Expression'
+              example:
+                data:
+                  - id: 321
+                    rbl_id: 789
+                    snippet_text: "if token and token.is_valid():"
+                    score: 0.72
+                    expression_class: 4
+                pagination:
+                  total: 1
+                  limit: 20
+                  has_more: false
+                  next_cursor: null
+                _links:
+                  self: "/api/v2/rbls/789/snapshots/1011/expressions?limit=20"
+                  next: null
+                  prev: null
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -1516,16 +2232,73 @@ paths:
         Retrieves expression insights (analysis metadata) for a specific issue.
         Insights provide detailed information about how expressions relate to issues,
         including rendered HTML content, view counts, and voting data.
+
+        This endpoint returns only:
+        - `200` with a JSON array of insight objects (empty array when no insight is available yet)
+        - `202` with a `job_key` while insight generation is running
+
+        Poll `/jobs/{job_key}` and call this endpoint again until you receive terminal insight data.
         
         **Note**: Issue IDs are unique only within an RBL context, so the RBL ID
         must be specified in the path.
       responses:
         '200':
-          description: Expression insights
+          description: Expression insights array
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ExpressionInsight'
+                $ref: '#/components/schemas/ExpressionInsightResult'
+              examples:
+                empty_insights:
+                  summary: No insights currently available
+                  value: []
+                single_insight_array:
+                  summary: Single insight wrapped in array
+                  value:
+                    - id: 901
+                      expression_id: 321
+                      issue_id: "321:0"
+                      html: "<p>This expression frequently appears in auth paths and should be reviewed.</p>"
+                      views: 12
+                      up_votes: 5
+                      down_votes: 1
+                      _links:
+                        self: "/api/v2/rbls/789/issues/321:0/expression-insights"
+                multiple_insights:
+                  summary: Multiple insight objects
+                  value:
+                    - id: 901
+                      expression_id: 321
+                      issue_id: "321:0"
+                      html: "<p>Insight A</p>"
+                      views: 12
+                      up_votes: 5
+                      down_votes: 1
+                    - id: 902
+                      expression_id: 321
+                      issue_id: "321:0"
+                      html: "<p>Insight B</p>"
+                      views: 4
+                      up_votes: 1
+                      down_votes: 0
+        '202':
+          description: Insight generation accepted; poll job then retry endpoint
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobAccepted'
+              example:
+                job_key: "r-123-rb-456-rbl-789@generate_insight"
+                status: "pending"
+                message: "Insight generation queued"
+                _links:
+                  job: "/api/v2/jobs/r-123-rb-456-rbl-789@generate_insight"
+        '502':
+          description: Upstream daemon returned an invalid non-JSON insights payload
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -1550,16 +2323,73 @@ paths:
         Retrieves insights (analysis metadata) for a specific expression.
         Insights provide detailed information about the expression including
         rendered HTML content, view counts, and voting data.
+
+        This endpoint returns only:
+        - `200` with a JSON array of insight objects (empty array when no insight is available yet)
+        - `202` with a `job_key` while insight generation is running
+
+        Poll `/jobs/{job_key}` and call this endpoint again until you receive terminal insight data.
         
         **Note**: Expression IDs are unique only within an RBL context, so the RBL ID
         must be specified in the path.
       responses:
         '200':
-          description: Expression insights
+          description: Expression insights array
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ExpressionInsight'
+                $ref: '#/components/schemas/ExpressionInsightResult'
+              examples:
+                empty_insights:
+                  summary: No insights currently available
+                  value: []
+                single_insight_array:
+                  summary: Single insight wrapped in array
+                  value:
+                    - id: 901
+                      expression_id: 321
+                      issue_id: "321:0"
+                      html: "<p>This expression frequently appears in auth paths and should be reviewed.</p>"
+                      views: 12
+                      up_votes: 5
+                      down_votes: 1
+                      _links:
+                        self: "/api/v2/rbls/789/expressions/321/insights"
+                multiple_insights:
+                  summary: Multiple insight objects
+                  value:
+                    - id: 901
+                      expression_id: 321
+                      issue_id: "321:0"
+                      html: "<p>Insight A</p>"
+                      views: 12
+                      up_votes: 5
+                      down_votes: 1
+                    - id: 902
+                      expression_id: 321
+                      issue_id: "321:0"
+                      html: "<p>Insight B</p>"
+                      views: 4
+                      up_votes: 1
+                      down_votes: 0
+        '202':
+          description: Insight generation accepted; poll job then retry endpoint
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobAccepted'
+              example:
+                job_key: "r-123-rb-456-rbl-789@generate_insight"
+                status: "pending"
+                message: "Insight generation queued"
+                _links:
+                  job: "/api/v2/jobs/r-123-rb-456-rbl-789@generate_insight"
+        '502':
+          description: Upstream daemon returned an invalid non-JSON insights payload
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -1597,6 +2427,23 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/WatchConfig'
+              example:
+                data:
+                  - id: 55
+                    rbl_id: 789
+                    score_enabled: true
+                    score_change_amount: 10
+                    issues_enabled: true
+                    introduced_amount: 1
+                pagination:
+                  total: 1
+                  limit: 20
+                  has_more: false
+                  next_cursor: null
+                _links:
+                  self: "/api/v2/rbls/789/watch-configs?limit=20"
+                  next: null
+                  prev: null
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -1609,12 +2456,33 @@ paths:
       description: |
         Creates a new watch configuration for an RBL.
         Watch configs define analysis settings and monitoring rules.
+
+        Notification delivery is best-effort. If the watch configuration is created
+        successfully but notification transport fails, the API still returns `201`.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateWatchConfigRequest'
+            example:
+              score_enabled: true
+              score_change_dir: 2
+              score_change_amount: 10
+              score_change_type: 0
+              score_freq: 50
+              score_freq_type: 0
+              issues_enabled: true
+              anomalies_introduced: true
+              notables_introduced: false
+              introduced_amount: 1
+              issues_introduced_change_type: 0
+              anomalies_removed: false
+              notables_removed: false
+              removed_amount: 1
+              issues_removed_change_type: 0
+              issues_freq: 50
+              issues_freq_type: 0
       responses:
         '201':
           description: Watch config created
@@ -1622,12 +2490,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WatchConfig'
+              example:
+                id: 55
+                rbl_id: 789
+                score_enabled: true
+                score_change_amount: 10
+                issues_enabled: true
+                introduced_amount: 1
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          description: Watch config service timeout or internal processing error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
 
   /rbls/{rbl_id}/watch-configs/{config_id}:
     parameters:
@@ -1656,6 +2537,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WatchConfig'
+              example:
+                id: 55
+                rbl_id: 789
+                score_enabled: true
+                score_change_amount: 10
+                issues_enabled: true
+                introduced_amount: 1
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -1664,7 +2552,7 @@ paths:
     patch:
       tags: [WatchConfigs]
       operationId: patchRblWatchConfig
-      summary: Update watch config
+      summary: Update watch config (partial)
       description: |
         Updates a watch configuration. Only specified fields are updated.
         
@@ -1676,6 +2564,11 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/PatchWatchConfigRequest'
+            example:
+              score_enabled: true
+              score_change_amount: 15
+              issues_enabled: true
+              introduced_amount: 2
       responses:
         '200':
           description: Watch config updated
@@ -1683,12 +2576,75 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WatchConfig'
+              example:
+                id: 55
+                rbl_id: 789
+                score_enabled: true
+                score_change_amount: 15
+                issues_enabled: true
+                introduced_amount: 2
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          description: Watch config service timeout or internal processing error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+    put:
+      tags: [WatchConfigs]
+      operationId: updateRblWatchConfig
+      deprecated: true
+      summary: Update watch config (legacy alias)
+      description: |
+        Backward-compatible alias for `PATCH /rbls/{rbl_id}/watch-configs/{config_id}`.
+        Behavior is partial update (PATCH semantics).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchWatchConfigRequest'
+            example:
+              score_enabled: true
+              score_change_amount: 15
+              issues_enabled: true
+              introduced_amount: 2
+      responses:
+        '200':
+          description: Watch config updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatchConfig'
+              example:
+                id: 55
+                rbl_id: 789
+                score_enabled: true
+                score_change_amount: 15
+                issues_enabled: true
+                introduced_amount: 2
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          description: Watch config service timeout or internal processing error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
 
     delete:
       tags: [WatchConfigs]
@@ -1704,8 +2660,16 @@ paths:
           description: Watch config deleted
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          description: Watch config service timeout or internal processing error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
 
   # ---------------------------------------------------------------------------
   # Reports - Analysis Reports
@@ -1722,6 +2686,10 @@ paths:
         Retrieves analysis reports for a repository.
         Reports provide high-level summaries of code quality, trends, and insights
         across all branches and languages in the repository.
+
+        Use this endpoint for repository-level report validation in end-to-end flows.
+        Trigger a fresh snapshot on the target RBL first, wait for job completion,
+        then fetch this route to read the updated repository report stream.
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -1740,6 +2708,31 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/AnalysisReport'
+              example:
+                data:
+                  - id: 510
+                    repository_id: 123
+                    rbl_id: 789
+                    generated_at: "2026-03-02T18:42:00Z"
+                    summary:
+                      total_files: 132
+                      total_lines: 27180
+                      total_issues: 17
+                      average_score: 80.6
+                    trends:
+                      score_delta_30d: 2.8
+                      issues_delta_30d: -4
+                    _links:
+                      self: "/api/v2/repositories/123/analysis-reports/510"
+                pagination:
+                  total: 1
+                  limit: 20
+                  has_more: false
+                  next_cursor: null
+                _links:
+                  self: "/api/v2/repositories/123/analysis-reports?limit=20"
+                  next: null
+                  prev: null
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -1757,6 +2750,10 @@ paths:
         Retrieves analysis reports for a specific RBL.
         Reports provide detailed summaries of code quality, trends, and insights
         for a specific branch+language context.
+
+        This endpoint is read-only and does not trigger report generation.
+        To refresh report data, run `POST /rbls/{rbl_id}/snapshots` and wait for job completion.
+        For repository-wide reports, use `GET /repositories/{repository_id}/analysis-reports`.
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -1775,6 +2772,31 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/AnalysisReport'
+              example:
+                data:
+                  - id: 510
+                    repository_id: 123
+                    rbl_id: 789
+                    generated_at: "2026-03-02T18:42:00Z"
+                    summary:
+                      total_files: 132
+                      total_lines: 27180
+                      total_issues: 17
+                      average_score: 80.6
+                    trends:
+                      score_delta_30d: 2.8
+                      issues_delta_30d: -4
+                    _links:
+                      self: "/api/v2/rbls/789/analysis-reports/510"
+                pagination:
+                  total: 1
+                  limit: 20
+                  has_more: false
+                  next_cursor: null
+                _links:
+                  self: "/api/v2/rbls/789/analysis-reports?limit=20"
+                  next: null
+                  prev: null
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -1792,6 +2814,9 @@ paths:
         Retrieves analysis reports for a branch.
         Reports provide summaries of code quality and insights across all languages
         in the branch.
+
+        If report generation is triggered asynchronously by backend logic, the response
+        includes `X-Report-Generation-Jobs` and an empty data list until jobs finish.
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -1799,6 +2824,11 @@ paths:
       responses:
         '200':
           description: List of reports
+          headers:
+            X-Report-Generation-Jobs:
+              description: Optional comma-separated report generation job keys when report refresh was triggered
+              schema:
+                type: string
           content:
             application/json:
               schema:
@@ -1810,10 +2840,43 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/Report'
+              example:
+                data:
+                  - id: 610
+                    branch_id: 456
+                    rbl_id: 789
+                    generated_at: "2026-03-02T18:42:00Z"
+                    metrics:
+                      score: 80.6
+                      issues: 17
+                      files: 132
+                    _links:
+                      self: "/api/v2/rbls/789/reports/610"
+                pagination:
+                  total: 1
+                  limit: 20
+                  has_more: false
+                  next_cursor: null
+                _links:
+                  self: "/api/v2/branches/456/reports?limit=20"
+                  next: null
+                  prev: null
+        '400':
+          description: Insufficient branch data available to generate or return reports
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          description: Internal report retrieval or generation error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
 
   /rbls/{rbl_id}/reports:
     parameters:
@@ -1827,6 +2890,13 @@ paths:
         Retrieves analysis reports for a specific RBL.
         Reports provide detailed summaries of code quality and insights
         for a specific branch+language context.
+
+        This endpoint is read-only and does not trigger report generation.
+        To refresh report data, run `POST /rbls/{rbl_id}/snapshots` and wait for job completion.
+
+        **Difference vs `/analysis-reports`**:
+        - `/rbls/{rbl_id}/reports` returns `Report` items (lightweight report shape).
+        - `/rbls/{rbl_id}/analysis-reports` returns `AnalysisReport` items (expanded summary/trend shape).
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -1845,6 +2915,27 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/Report'
+              example:
+                data:
+                  - id: 610
+                    branch_id: 456
+                    rbl_id: 789
+                    generated_at: "2026-03-02T18:42:00Z"
+                    metrics:
+                      score: 80.6
+                      issues: 17
+                      files: 132
+                    _links:
+                      self: "/api/v2/rbls/789/reports/610"
+                pagination:
+                  total: 1
+                  limit: 20
+                  has_more: false
+                  next_cursor: null
+                _links:
+                  self: "/api/v2/rbls/789/reports?limit=20"
+                  next: null
+                  prev: null
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -1945,15 +3036,18 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/UpdatePasswordRequest'
+            example:
+              current_password: "OldPassword!123"
+              new_password: "NewPassword!456"
       responses:
         '204':
           description: Password updated
         '400':
           $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -1966,14 +3060,16 @@ paths:
         Initiates a password reset process for a user account.
         This endpoint sends a password reset email to the user's registered email address.
         
-        **Security**: This endpoint does not require authentication and is rate-limited
-        to prevent abuse.
+        **Security**: This endpoint does not require authentication and always returns
+        the same `202` message to avoid revealing whether an account exists.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/PasswordResetRequest'
+            example:
+              email: "developer@merly.ai"
       responses:
         '202':
           description: Password reset request accepted
@@ -1985,10 +3081,10 @@ paths:
                   message:
                     type: string
                     example: "Password reset email sent if account exists"
+              example:
+                message: "Password reset email sent if account exists"
         '400':
           $ref: '#/components/responses/BadRequest'
-        '429':
-          $ref: '#/components/responses/RateLimitExceeded'
 
   # ---------------------------------------------------------------------------
   # Search
@@ -2082,7 +3178,10 @@ components:
       required: true
       schema:
         type: string
-      description: Issue ID (format "expression_id:index")
+      description: |
+        Issue ID in format `expression_id:index`.
+        Example: for `321:0`, the expression ID component is `321`.
+        URL-encode this value when placing it in the request path (`321%3A0`).
       example: "123:0"
 
     UserId:
@@ -2099,6 +3198,7 @@ components:
       in: query
       schema:
         type: string
+        example: "eyJpZCI6Nzg5fQ=="
       description: Pagination cursor for the next page
 
     Limit:
@@ -2110,6 +3210,7 @@ components:
         default: 20
         minimum: 1
         maximum: 100
+        example: 20
       description: Maximum items per page
 
     Sort:
@@ -2117,6 +3218,7 @@ components:
       in: query
       schema:
         type: string
+        example: "-updated_at,name"
       description: |
         Sort fields, comma-separated. Prefix with `-` for descending.
         Example: `-created_at,name`
@@ -2126,6 +3228,7 @@ components:
       in: query
       schema:
         type: string
+        example: '{"status":"active","language":"PYTHON"}'
       description: |
         JSON-encoded filter object.
         Example: `{"status":"active","language":"python"}`
@@ -2190,6 +3293,55 @@ components:
     # -------------------------------------------------------------------------
     # Common/Shared Schemas
     # -------------------------------------------------------------------------
+    HealthStatus:
+      type: object
+      description: Health status of the bridge and daemon
+      required:
+        - status
+        - daemon
+      properties:
+        status:
+          type: string
+          enum: [ok, unhealthy]
+          description: |
+            Overall bridge service health status.
+            `unhealthy` indicates degraded daemon dependency while bridge remains reachable.
+        version:
+          type: string
+          description: Bridge version
+        uptime:
+          type: number
+          format: float
+          description: Uptime in seconds
+        daemon:
+          type: string
+          enum: [ok, down, inconclusive]
+          description: Daemon health state
+        database:
+          type: object
+          description: Database lock status
+        daemon_status:
+          type: object
+          properties:
+            state:
+              type: string
+              enum: [ok, down, inconclusive]
+            fail_count:
+              type: integer
+            threshold:
+              type: integer
+      example:
+        status: ok
+        version: "2.0.0"
+        uptime: 12435.5
+        daemon: ok
+        database:
+          lock: false
+        daemon_status:
+          state: ok
+          fail_count: 0
+          threshold: 3
+
     ProblemDetail:
       type: object
       description: RFC 7807 Problem Details for HTTP APIs
@@ -2224,6 +3376,13 @@ components:
           type: string
           description: Request trace ID for debugging
           example: "abc123def456"
+      example:
+        type: "https://api.merly.ai/problems/not-found"
+        title: "Resource Not Found"
+        status: 404
+        detail: "Repository with ID 123 was not found"
+        instance: "/api/v2/repositories/123"
+        trace_id: "abc123def456"
 
     ValidationErrorItem:
       type: object
@@ -2252,6 +3411,18 @@ components:
           $ref: '#/components/schemas/PaginationInfo'
         _links:
           $ref: '#/components/schemas/PaginationLinks'
+      example:
+        data:
+          - id: 123
+        pagination:
+          total: 1
+          limit: 20
+          has_more: false
+          next_cursor: null
+        _links:
+          self: "/api/v2/resource?limit=20"
+          next: null
+          prev: null
 
     PaginationInfo:
       type: object
@@ -2269,6 +3440,11 @@ components:
           type: string
           nullable: true
           description: Cursor for next page
+      example:
+        total: 1
+        limit: 20
+        has_more: false
+        next_cursor: null
 
     PaginationLinks:
       type: object
@@ -2285,6 +3461,10 @@ components:
           type: string
           format: uri
           nullable: true
+      example:
+        self: "/api/v2/repositories?limit=20"
+        next: null
+        prev: null
 
     ResourceLinks:
       type: object
@@ -2308,6 +3488,9 @@ components:
         password:
           type: string
           format: password
+      example:
+        email: "qa-test@merly.ai"
+        password: "StrongPassword!123"
 
     RefreshTokenRequest:
       type: object
@@ -2316,6 +3499,8 @@ components:
       properties:
         refresh_token:
           type: string
+      example:
+        refresh_token: "rt_3b6f72e0e7b94bb4b1833aa9f2f6a08c"
 
     AuthTokens:
       type: object
@@ -2333,6 +3518,11 @@ components:
           type: integer
           description: Access token expiry in seconds
           example: 900
+      example:
+        access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.access.1709491200"
+        refresh_token: "rt_3b6f72e0e7b94bb4b1833aa9f2f6a08c"
+        token_type: "Bearer"
+        expires_in: 900
 
     # -------------------------------------------------------------------------
     # Repository Schemas
@@ -2373,14 +3563,14 @@ components:
           readOnly: true
         name:
           type: string
-          example: "my-project"
+          example: "mentor-service"
         description:
           type: string
           nullable: true
         git_url:
           type: string
           format: uri
-          example: "https://github.com/user/my-project.git"
+          example: "https://github.com/github/hub.git"
         default_branch:
           type: string
           example: "main"
@@ -2396,6 +3586,12 @@ components:
           type: string
           nullable: true
           description: Git root path if different from source_root
+        rbl_id:
+          type: integer
+          format: int32
+          nullable: true
+          readOnly: true
+          description: RBL (Repository-Branch-Language) ID for the default branch and first detected language. Null if no RBL exists yet.
         auto_update_interval:
           type: integer
           description: Auto-update interval in minutes (0 = disabled)
@@ -2417,6 +3613,29 @@ components:
           readOnly: true
         _links:
           $ref: '#/components/schemas/ResourceLinks'
+      example:
+        id: 123
+        name: "mentor-service"
+        description: "Primary service repository"
+        git_url: "https://github.com/merly-ai/mentor-service.git"
+        default_branch: "main"
+        status: "active"
+        source_root: "/workspace/mentor-service"
+        git_root: "/workspace/mentor-service/.git"
+        rbl_id: 789
+        auto_update_interval: 60
+        branches:
+          - name: "main"
+            date: "2026-03-01"
+        exclusions:
+          folders: ["vendor", "third_party"]
+          files: ["package-lock.json"]
+        contributor_samples: 40
+        updated_at: "2026-03-02T18:45:21Z"
+        _links:
+          self: "/api/v2/repositories/123"
+          branches: "/api/v2/repositories/123/branches"
+          issues: "/api/v2/repositories/123/issues"
 
     CreateRepositoryRequest:
       type: object
@@ -2448,6 +3667,12 @@ components:
           type: string
         git_root:
           type: string
+      example:
+        name: "mentor-service"
+        git_url: "https://github.com/merly-ai/mentor-service.git"
+        description: "Primary service repository for mentor analysis"
+        git_branch: "main"
+        source_root: "/workspace/mentor-service"
 
     UpdateRepositoryRequest:
       type: object
@@ -2466,6 +3691,12 @@ components:
           type: string
         auto_update_interval:
           type: integer
+      example:
+        name: "mentor-service"
+        description: "Primary service repository (updated metadata)"
+        default_branch: "main"
+        source_root: "/workspace/mentor-service"
+        auto_update_interval: 60
 
     PatchRepositoryRequest:
       type: object
@@ -2482,6 +3713,9 @@ components:
           type: string
         auto_update_interval:
           type: integer
+      example:
+        description: "Repository monitored by platform team"
+        auto_update_interval: 30
 
     RepositoryWithJob:
       allOf:
@@ -2490,6 +3724,19 @@ components:
           properties:
             job:
               $ref: '#/components/schemas/JobAccepted'
+      example:
+        id: 123
+        name: "mentor-service"
+        git_url: "https://github.com/merly-ai/mentor-service.git"
+        default_branch: "main"
+        status: "cloning"
+        rbl_id: null
+        job:
+          job_key: "r-123-rb-456@clone"
+          status: "pending"
+          message: "Repository clone queued"
+          _links:
+            job: "/api/v2/jobs/r-123-rb-456@clone"
 
     # -------------------------------------------------------------------------
     # Branch Schemas
@@ -2537,6 +3784,23 @@ components:
           readOnly: true
         _links:
           $ref: '#/components/schemas/ResourceLinks'
+      example:
+        id: 456
+        repository_id: 123
+        name: "main"
+        last_commit_sha: "abc123def456"
+        rev_list: "abc123def456\n789xyz123456"
+        is_default: true
+        lifetime_mentor_score: 81.2
+        languages:
+          - id: 1
+            name: "Python"
+            percentage: 65.5
+        created_at: "2026-02-20T09:15:00Z"
+        updated_at: "2026-03-02T18:45:21Z"
+        _links:
+          self: "/api/v2/branches/456"
+          rbls: "/api/v2/branches/456/rbls"
 
     CreateBranchRequest:
       type: object
@@ -2545,6 +3809,8 @@ components:
       properties:
         name:
           type: string
+      example:
+        name: "release/2026.03"
 
     LanguageSummary:
       type: object
@@ -2618,6 +3884,25 @@ components:
           readOnly: true
         _links:
           $ref: '#/components/schemas/ResourceLinks'
+      example:
+        id: 789
+        repository_id: 123
+        branch_id: 456
+        language: "PYTHON"
+        status: "active"
+        lifetime_mentor_score: 82.3
+        last_score: 80.6
+        last_issue_count: 17
+        last_analyzed_at: "2026-03-02T18:41:00Z"
+        earliest_point_date: "2026-01-10T11:00:00Z"
+        author_count: 14
+        snapshot_count: 28
+        created_at: "2026-01-10T11:00:00Z"
+        updated_at: "2026-03-02T18:41:00Z"
+        _links:
+          self: "/api/v2/rbls/789"
+          snapshots: "/api/v2/rbls/789/snapshots"
+          issues: "/api/v2/rbls/789/issues"
 
     PatchRBLRequest:
       type: object
@@ -2625,6 +3910,8 @@ components:
         status:
           type: string
           enum: [active, paused]
+      example:
+        status: "paused"
 
     # -------------------------------------------------------------------------
     # Snapshot Schemas
@@ -2681,9 +3968,29 @@ components:
           type: integer
         _links:
           $ref: '#/components/schemas/ResourceLinks'
+      example:
+        id: 1011
+        rbl_id: 789
+        branch_id: 456
+        repository_id: 123
+        point_ref: "abc123def456"
+        point_time: "2026-03-01T14:20:00Z"
+        language: "PYTHON"
+        score: 80.6
+        content_files: 132
+        content_size: 1489203
+        lines_of_code: 27180
+        issue_count: 17
+        anomaly_count: 4
+        notable_count: 8
+        expression_count: 932
+        _links:
+          self: "/api/v2/rbls/789/snapshots/1011"
+          issues: "/api/v2/rbls/789/snapshots/1011/issues"
 
     CreateSnapshotRequest:
       type: object
+      description: Request payload for creating new analysis snapshots.
       required:
         - method
       properties:
@@ -2697,10 +4004,17 @@ components:
             - `ref`: Analyze at specific git ref
         value:
           type: integer
-          description: Required for `count` and `duration` methods
+          minimum: 1
+          description: |
+            Required for `count` and `duration` methods.
+            Interpreted as:
+            - `count`: number of snapshots to create
+            - `duration`: lookback window in days
         ref:
           type: string
-          description: Git ref (commit SHA, tag, branch) for `ref` method
+          description: Git ref (commit SHA, tag, branch) required for `ref` method
+      example:
+        method: "single"
 
     # -------------------------------------------------------------------------
     # Issue Schemas
@@ -2770,6 +4084,28 @@ components:
           nullable: true
         _links:
           $ref: '#/components/schemas/ResourceLinks'
+      example:
+        id: "321:0"
+        repository_id: 123
+        snapshot_id: 1011
+        expression_instance_id: 5551
+        severity: "high"
+        status: "open"
+        action: "investigate"
+        file_path: "src/security/auth.py"
+        file_line: 184
+        file_column: 12
+        snippet: "token = verify_token(request.headers[\"Authorization\"])"
+        comment: null
+        category_id: 4
+        reporter_id: null
+        reported_at: null
+        assignee_id: 7
+        assigned_at: "2026-03-02T19:00:00Z"
+        updated_at: "2026-03-02T19:00:00Z"
+        _links:
+          self: "/api/v2/rbls/789/issues/321:0"
+          insights: "/api/v2/rbls/789/issues/321:0/expression-insights"
 
     PatchIssueRequest:
       type: object
@@ -2786,6 +4122,11 @@ components:
           type: integer
         assignee_id:
           type: integer
+      example:
+        status: "acknowledged"
+        action: "investigate"
+        comment: "Triaged by platform team"
+        assignee_id: 7
 
     # -------------------------------------------------------------------------
     # Job Schemas
@@ -2829,9 +4170,24 @@ components:
           type: string
           format: date-time
           nullable: true
+      example:
+        job_key: "r-123-rb-456-rbl-789@infer_points"
+        status: "running"
+        action: "infer_points"
+        description: "Generating snapshots for RBL 789"
+        progress: 45
+        error_message: null
+        repository_id: 123
+        branch_id: 456
+        rbl_id: 789
+        started_at: "2026-03-02T19:05:00Z"
+        finished_at: null
 
     JobAccepted:
       type: object
+      description: |
+        Async acceptance payload. Endpoints that perform background work return this shape
+        with a `job_key` to be polled via `/jobs/{job_key}`.
       properties:
         job_key:
           type: string
@@ -2846,6 +4202,12 @@ components:
             job:
               type: string
               format: uri
+      example:
+        job_key: "r-123-rb-456-rbl-789@infer_points"
+        status: "pending"
+        message: "Request queued"
+        _links:
+          job: "/api/v2/jobs/r-123-rb-456-rbl-789@infer_points"
 
     # -------------------------------------------------------------------------
     # User Schemas
@@ -2871,6 +4233,14 @@ components:
           readOnly: true
         _links:
           $ref: '#/components/schemas/ResourceLinks'
+      example:
+        id: 7
+        name: "Taylor Developer"
+        email: "taylor.dev@merly.ai"
+        role: "lead"
+        updated_at: "2026-03-02T18:30:00Z"
+        _links:
+          self: "/api/v2/users/7"
 
     CreateUserRequest:
       type: object
@@ -2892,6 +4262,11 @@ components:
         role:
           type: string
           enum: [developer, lead, admin, owner]
+      example:
+        name: "Taylor Dev"
+        email: "taylor.dev@merly.ai"
+        password: "StrongPassword!123"
+        role: "developer"
 
     PatchUserRequest:
       type: object
@@ -2904,6 +4279,9 @@ components:
         role:
           type: string
           enum: [developer, lead, admin, owner]
+      example:
+        name: "Taylor Developer"
+        role: "lead"
 
     # -------------------------------------------------------------------------
     # Search Schemas
@@ -2933,6 +4311,25 @@ components:
             $ref: '#/components/schemas/Issue'
         total_results:
           type: integer
+      example:
+        repositories:
+          - id: 123
+            name: "mentor-service"
+            git_url: "https://github.com/merly-ai/mentor-service.git"
+        branches:
+          - id: 456
+            name: "main"
+        rbls:
+          - id: 789
+            language: "PYTHON"
+        snapshots:
+          - id: 1011
+            point_ref: "abc123def456"
+        issues:
+          - id: "321:0"
+            severity: "high"
+            file_path: "src/security/auth.py"
+        total_results: 5
 
     # -------------------------------------------------------------------------
     # Author Schemas
@@ -2958,7 +4355,7 @@ components:
             type: string
             format: email
           description: List of email addresses used by this author
-          example: ["john.doe@example.com", "jdoe@example.com"]
+          example: ["taylor.dev@merly.ai", "tdev@merly.ai"]
         raw_point_score:
           type: integer
           description: Raw point score for this author (default -1 if not calculated)
@@ -2969,6 +4366,14 @@ components:
           default: -1
         _links:
           $ref: '#/components/schemas/ResourceLinks'
+      example:
+        id: 55
+        names: ["Taylor Dev", "T. Dev"]
+        emails: ["taylor.dev@merly.ai", "tdev@users.noreply.github.com"]
+        raw_point_score: 245
+        ema_mentor_score: 88
+        _links:
+          self: "/api/v2/rbls/789/authors/55"
 
     # -------------------------------------------------------------------------
     # File Schemas
@@ -3009,6 +4414,18 @@ components:
           description: Programming language
         _links:
           $ref: '#/components/schemas/ResourceLinks'
+      example:
+        id: 654
+        rbl_id: 789
+        file_path: "src/security/auth.py"
+        file_name: "auth.py"
+        extension: ".py"
+        size: 12456
+        lines_of_code: 412
+        language: "PYTHON"
+        _links:
+          self: "/api/v2/rbls/789/files/654"
+          versions: "/api/v2/rbls/789/files/654/versions"
 
     FileVersion:
       type: object
@@ -3042,6 +4459,16 @@ components:
           description: Number of lines of code at this version
         _links:
           $ref: '#/components/schemas/ResourceLinks'
+      example:
+        id: 8801
+        file_id: 654
+        snapshot_id: 1011
+        version_ref: "abc123def456"
+        version_time: "2026-03-01T14:20:00Z"
+        size: 12456
+        lines_of_code: 412
+        _links:
+          self: "/api/v2/rbls/789/files/654/versions/8801"
 
     # -------------------------------------------------------------------------
     # Expression Schemas
@@ -3076,15 +4503,28 @@ components:
           description: Expression cost
         expression_class:
           type: integer
-          description: Expression classification
+          description: Backend-defined expression classification code (treat as opaque integer unless mapping is provided)
         expression_type:
           type: integer
-          description: Expression type
+          description: Backend-defined expression type code (treat as opaque integer unless mapping is provided)
         state:
           type: integer
-          description: Expression state
+          description: Backend-defined expression lifecycle state code (treat as opaque integer unless mapping is provided)
         _links:
           $ref: '#/components/schemas/ResourceLinks'
+      example:
+        id: 321
+        rbl_id: 789
+        snippet_id: 4451
+        snippet_text: "if token and token.is_valid():"
+        score: 0.72
+        cost: 14.3
+        expression_class: 4
+        expression_type: 2
+        state: 1
+        _links:
+          self: "/api/v2/rbls/789/expressions/321"
+          insights: "/api/v2/rbls/789/expressions/321/insights"
 
     ExpressionInsight:
       type: object
@@ -3116,6 +4556,24 @@ components:
           description: Number of down votes
         _links:
           $ref: '#/components/schemas/ResourceLinks'
+      example:
+        id: 901
+        expression_id: 321
+        issue_id: "321:0"
+        html: "<p>This expression frequently appears in auth paths and should be reviewed.</p>"
+        views: 12
+        up_votes: 5
+        down_votes: 1
+        _links:
+          self: "/api/v2/rbls/789/expressions/321/insights"
+
+    ExpressionInsightResult:
+      description: |
+        Insight result payload for expression/issue insight endpoints.
+        Always returned as an array. Empty array means no insight is currently available.
+      type: array
+      items:
+        $ref: '#/components/schemas/ExpressionInsight'
 
     # -------------------------------------------------------------------------
     # Watch Config Schemas
@@ -3178,6 +4636,26 @@ components:
         issues_freq_type:
           type: integer
           format: int32
+      example:
+        id: 42
+        rbl_id: 789
+        score_enabled: true
+        score_change_dir: 2
+        score_change_amount: 10
+        score_change_type: 0
+        score_freq: 50
+        score_freq_type: 0
+        issues_enabled: true
+        anomalies_introduced: true
+        notables_introduced: false
+        introduced_amount: 1
+        issues_introduced_change_type: 0
+        anomalies_removed: false
+        notables_removed: false
+        removed_amount: 1
+        issues_removed_change_type: 0
+        issues_freq: 50
+        issues_freq_type: 0
 
     CreateWatchConfigRequest:
       type: object
@@ -3245,6 +4723,24 @@ components:
         issues_freq_type:
           type: integer
           format: int32
+      example:
+        score_enabled: true
+        score_change_dir: 2
+        score_change_amount: 10
+        score_change_type: 0
+        score_freq: 50
+        score_freq_type: 0
+        issues_enabled: true
+        anomalies_introduced: true
+        notables_introduced: false
+        introduced_amount: 1
+        issues_introduced_change_type: 0
+        anomalies_removed: false
+        notables_removed: false
+        removed_amount: 1
+        issues_removed_change_type: 0
+        issues_freq: 50
+        issues_freq_type: 0
 
     PatchWatchConfigRequest:
       type: object
@@ -3311,6 +4807,11 @@ components:
           type: integer
           format: int32
           nullable: true
+      example:
+        score_enabled: true
+        score_change_amount: 10
+        issues_enabled: true
+        introduced_amount: 2
 
     # -------------------------------------------------------------------------
     # Report Schemas
@@ -3354,6 +4855,21 @@ components:
           description: Trend analysis over time
         _links:
           $ref: '#/components/schemas/ResourceLinks'
+      example:
+        id: 510
+        repository_id: 123
+        rbl_id: 789
+        generated_at: "2026-03-02T18:42:00Z"
+        summary:
+          total_files: 132
+          total_lines: 27180
+          total_issues: 17
+          average_score: 80.6
+        trends:
+          score_delta_30d: 2.8
+          issues_delta_30d: -4
+        _links:
+          self: "/api/v2/repositories/123/analysis-reports/510"
 
     Report:
       type: object
@@ -3382,6 +4898,17 @@ components:
           description: Code quality metrics
         _links:
           $ref: '#/components/schemas/ResourceLinks'
+      example:
+        id: 610
+        branch_id: 456
+        rbl_id: 789
+        generated_at: "2026-03-02T18:42:00Z"
+        metrics:
+          score: 80.6
+          issues: 17
+          files: 132
+        _links:
+          self: "/api/v2/rbls/789/reports/610"
 
     # -------------------------------------------------------------------------
     # Language Schemas
@@ -3408,6 +4935,13 @@ components:
           description: RBL ID if scoped to a specific RBL
         _links:
           $ref: '#/components/schemas/ResourceLinks'
+      example:
+        language: "PYTHON"
+        file_count: 86
+        lines_of_code: 17120
+        rbl_id: 789
+        _links:
+          rbl: "/api/v2/rbls/789"
 
     # -------------------------------------------------------------------------
     # Password Management Schemas
@@ -3427,6 +4961,9 @@ components:
           format: password
           minLength: 8
           description: New password
+      example:
+        current_password: "CurrentPassword!123"
+        new_password: "NewPassword!123"
 
     PasswordResetRequest:
       type: object
@@ -3437,6 +4974,8 @@ components:
           type: string
           format: email
           description: Email address of the account to reset
+      example:
+        email: "taylor.dev@merly.ai"
 
   # ---------------------------------------------------------------------------
   # Security Schemes
@@ -3451,9 +4990,8 @@ components:
         
         Include in the Authorization header:
         ```
-        Authorization: Bearer <token>
+        Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature
         ```
 
 security:
   - BearerAuth: []
-
