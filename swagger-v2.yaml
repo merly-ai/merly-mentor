@@ -72,7 +72,7 @@ info:
     - `X-RateLimit-Remaining`: Requests remaining
     - `X-RateLimit-Reset`: Unix timestamp when window resets
 
-    ### Swagger-Only Quickstart (No Prior Knowledge Required)
+    ### Swagger-Only Quickstart
 
     The sequence below is sufficient to build a client from scratch and verify the full flow
     (auth -> repository report -> open issues/expressions -> issue insights).
