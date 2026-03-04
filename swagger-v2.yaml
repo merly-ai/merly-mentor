@@ -79,7 +79,7 @@ info:
 
     1. Authenticate and store a bearer token:
        - `POST /auth/login`
-       - Use `Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature` for all protected routes.
+       - Use `Authorization: Bearer <ACCESS_TOKEN>` for all protected routes.
     2. Register a repository to analyze:
        - `POST /repositories` with `name` and `git_url`.
        - Expect `202 Accepted` with `job.job_key` for async clone/scan.
@@ -254,8 +254,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthTokens'
               example:
-                access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.access.1709491200"
-                refresh_token: "rt_3b6f72e0e7b94bb4b1833aa9f2f6a08c"
+                access_token: "<ACCESS_TOKEN>"
+                refresh_token: "<REFRESH_TOKEN>"
                 token_type: "Bearer"
                 expires_in: 900
         '401':
@@ -3500,7 +3500,7 @@ components:
         refresh_token:
           type: string
       example:
-        refresh_token: "rt_3b6f72e0e7b94bb4b1833aa9f2f6a08c"
+        refresh_token: "<REFRESH_TOKEN>"
 
     AuthTokens:
       type: object
@@ -3519,8 +3519,8 @@ components:
           description: Access token expiry in seconds
           example: 900
       example:
-        access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.access.1709491200"
-        refresh_token: "rt_3b6f72e0e7b94bb4b1833aa9f2f6a08c"
+        access_token: "<ACCESS_TOKEN>"
+        refresh_token: "<REFRESH_TOKEN>"
         token_type: "Bearer"
         expires_in: 900
 
@@ -4990,7 +4990,7 @@ components:
         
         Include in the Authorization header:
         ```
-        Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature
+        Authorization: Bearer <ACCESS_TOKEN>
         ```
 
 security:
