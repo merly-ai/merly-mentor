@@ -2,4 +2,5 @@
 docker-compose*.*ml
 mentor-data
 .mentor
+agent.md
 kubernetes/deploy.yaml
