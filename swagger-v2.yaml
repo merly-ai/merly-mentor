@@ -106,6 +106,29 @@ info:
        - Expression-scoped: `GET /rbls/{rbl_id}/expressions/{expression_id}/insights`
        - If response is `202`, poll `/jobs/{job_key}` and call the insight endpoint again.
 
+    ### DIF Analyzer Quickstart
+
+    The bridge exposes DIF through `/api/v2/dif/*` and requires the service token
+    configured in `BRIDGE_DIF_TOKEN`.
+
+    1. Load the Python language model:
+       - `POST /dif/languages/load`
+       - Example body: `{"languages":["python"]}`
+    2. Verify a code block:
+       - `POST /dif/verify`
+       - Example body:
+         ```json
+         {"language":"python","code":"def f(x):\n    return x == True\n"}
+         ```
+    3. Inspect the response fields that matter for ranking and finetuning:
+       - `counts.expressions_analyzed`
+       - `counts.anomalies`
+       - `semantic_support_score`
+       - `statement_complexity_score`
+       - `structural_cost_score`
+       - `verification_score`
+       - `trust_profile.signal`
+
     ### Polling Rules
 
     - Poll cadence: every 2-5 seconds.
@@ -197,6 +220,8 @@ tags:
     description: User management
   - name: Search
     description: Cross-resource search
+  - name: DIF
+    description: Bridge-accessible code analysis and language-loading endpoints
 
 # =============================================================================
 # PATHS
@@ -223,6 +248,212 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthStatus'
+
+  # ---------------------------------------------------------------------------
+  # DIF Analyzer Bridge
+  # ---------------------------------------------------------------------------
+  /dif/languages:
+    get:
+      tags: [DIF]
+      operationId: getDifLanguages
+      summary: List DIF language load states
+      description: |
+        Returns the language support matrix exposed by the bridge's DIF analyzer.
+        The bridge serves this path under `/api/v2/dif/languages` and requires the
+        service token configured in `BRIDGE_DIF_TOKEN`.
+      security:
+        - DifServiceAuth: []
+      responses:
+        '200':
+          description: Loaded and supported languages
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifLanguagesResponse'
+              example:
+                languages:
+                  - language: c
+                    aliases: []
+                    loaded: false
+                    loading: false
+                    supported: true
+                  - language: cpp
+                    aliases: ["c++"]
+                    loaded: false
+                    loading: false
+                    supported: true
+                  - language: python
+                    aliases: ["py"]
+                    loaded: true
+                    loading: false
+                    supported: true
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+        '502':
+          $ref: '#/components/responses/DifDaemonDown'
+        '503':
+          $ref: '#/components/responses/DifDisabled'
+
+  /dif/languages/load:
+    post:
+      tags: [DIF]
+      operationId: loadDifLanguages
+      summary: Load DIF language models
+      description: |
+        Requests the daemon to load one or more languages before verification.
+        `languages` must be a non-empty array. `wait` defaults to `true`; `wait=false`
+        is rejected by the daemon build used in this workspace.
+      security:
+        - DifServiceAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DifLanguageLoadRequest'
+            example:
+              languages: ["python"]
+      responses:
+        '200':
+          description: Updated language load matrix
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifLanguagesResponse'
+              example:
+                languages:
+                  - language: python
+                    aliases: ["py"]
+                    loaded: true
+                    loading: false
+                    supported: true
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+        '502':
+          $ref: '#/components/responses/DifDaemonDown'
+        '503':
+          $ref: '#/components/responses/DifDisabled'
+
+  /dif/verify:
+    post:
+      tags: [DIF]
+      operationId: verifyDifSnippet
+      summary: Verify a code block with DIF
+      description: |
+        Analyzes a single code snippet or function body and returns the daemon's
+        JSON response unchanged. This path accepts any code block or function body,
+        not just control-flow expressions. For finetuning, the most useful fields are
+        `counts`, `semantic_support_score`, `statement_complexity_score`,
+        `structural_cost_score`, `verification_score`, and `trust_profile.signal`.
+      security:
+        - DifServiceAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DifVerifyRequest'
+            example:
+              language: python
+              code: |
+                def __add__(self, other):
+                    return self.__cast() + other
+
+                def __radd__(self, other):
+                    return other + self.__cast()
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifVerifyResponse'
+              example:
+                contract:
+                  context_mode: snippet_only
+                  coverage_state: analyzed_code_block_subset
+                  job_used: false
+                  language_preloaded: true
+                  lm_used: false
+                  load_triggered: false
+                  repo_context_used: false
+                  scope: analyzed_code_blocks
+                counts:
+                  anomalies: 2
+                  control_expressions_analyzed: 0
+                  expressions_analyzed: 2
+                  non_control_expressions_analyzed: 2
+                  notables: 0
+                findings:
+                  - basis: verifier
+                    cost: 0.25
+                    finding_id: f1
+                    kind: anomaly
+                    expression_kind: expression_statement
+                    span:
+                      start_line: 1
+                      start_col: 1
+                      end_line: 2
+                      end_col: 33
+                    total_score: 989.2630615234375
+                  - basis: verifier
+                    cost: 0.25
+                    finding_id: f2
+                    kind: anomaly
+                    expression_kind: expression_statement
+                    span:
+                      start_line: 4
+                      start_col: 1
+                      end_line: 5
+                      end_col: 33
+                    total_score: 989.2630615234375
+                language: python
+                loaded: true
+                meta:
+                  cold_start: false
+                  deterministic: true
+                  latency_ms: 0
+                model_support_score: 10
+                parse_mode: direct_code_block
+                parsed: true
+                semantic_highlights:
+                  - basis: semantic_shape
+                    exact_occurrences: 1
+                    highlight_id: m1
+                    semantic_family: expression_statement:basic_block
+                    semantic_shape: "(function_definition a def () : )"
+                    semantic_support_score: 10
+                    support_band: very_low
+                    support_interpretation: low_support_shape
+                  - basis: semantic_shape
+                    exact_occurrences: 1
+                    highlight_id: m2
+                    semantic_family: expression_statement:basic_block
+                    semantic_shape: "(function_definition a def () : )"
+                    semantic_support_score: 10
+                    support_band: very_low
+                    support_interpretation: low_support_shape
+                semantic_support_score: 10
+                statement_complexity_score: 26
+                structural_cost_score: 100
+                trust_profile:
+                  basis: verifier_findings
+                  low_support_expression_count: 2
+                  novel_expression_count: 0
+                  positive_expression_count: 0
+                  positive_signal: false
+                  review_worthy: true
+                  signal: review
+                  summary: "review: verifier findings are present in the analyzed expressions"
+                  variant_expression_count: 0
+                verdict: findings
+                verification_score: 35
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+        '502':
+          $ref: '#/components/responses/DifDaemonDown'
+        '503':
+          $ref: '#/components/responses/DifDisabled'
 
   # ---------------------------------------------------------------------------
   # Authentication
@@ -3286,6 +3517,35 @@ components:
                     items:
                       $ref: '#/components/schemas/ValidationErrorItem'
 
+    DifUnauthorized:
+      description: Unauthorized - missing or invalid BRIDGE_DIF_TOKEN
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/DifBridgeErrorResponse'
+          example:
+            error: "unauthorized"
+
+    DifDisabled:
+      description: DIF bridge disabled because BRIDGE_DIF_TOKEN is unset
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/DifBridgeErrorResponse'
+          example:
+            error: "dif_api_disabled"
+
+    DifDaemonDown:
+      description: Daemon unavailable
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/DifBridgeDownResponse'
+          example:
+            ok: false
+            state: "down"
+            error: "daemon unreachable"
+
   # ---------------------------------------------------------------------------
   # Schemas
   # ---------------------------------------------------------------------------
@@ -3824,6 +4084,131 @@ components:
           type: number
           format: float
           example: 65.5
+
+    # -------------------------------------------------------------------------
+    # DIF Analyzer Schemas
+    # -------------------------------------------------------------------------
+    DifLanguageStatus:
+      type: object
+      required:
+        - language
+        - loaded
+        - loading
+        - supported
+      properties:
+        language:
+          type: string
+          description: Canonical language slug used by the daemon
+          example: "python"
+        aliases:
+          type: array
+          items:
+            type: string
+          description: Alias names accepted by the daemon
+          example: ["py"]
+        loaded:
+          type: boolean
+        loading:
+          type: boolean
+        supported:
+          type: boolean
+      example:
+        language: "python"
+        aliases: ["py"]
+        loaded: true
+        loading: false
+        supported: true
+
+    DifLanguagesResponse:
+      type: object
+      required:
+        - languages
+      properties:
+        languages:
+          type: array
+          items:
+            $ref: '#/components/schemas/DifLanguageStatus'
+      example:
+        languages:
+          - language: "python"
+            aliases: ["py"]
+            loaded: true
+            loading: false
+            supported: true
+
+    DifLanguageLoadRequest:
+      type: object
+      required:
+        - languages
+      properties:
+        languages:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          description: Languages to load in the daemon.
+        wait:
+          type: boolean
+          default: true
+          description: When provided, must be true. `wait=false` is rejected by the daemon build used here.
+      example:
+        languages: ["python"]
+
+    DifVerifyRequest:
+      type: object
+      required:
+        - language
+        - code
+      properties:
+        language:
+          type: string
+          description: Supported language slug, for example `python`
+        code:
+          type: string
+          description: Code block, function body, or snippet to analyze
+      example:
+        language: "python"
+        code: |
+          def __add__(self, other):
+              return self.__cast() + other
+
+          def __radd__(self, other):
+              return other + self.__cast()
+
+    DifBridgeErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      example:
+        error: "unauthorized"
+
+    DifBridgeDownResponse:
+      type: object
+      required:
+        - ok
+        - state
+        - error
+      properties:
+        ok:
+          type: boolean
+        state:
+          type: string
+        error:
+          type: string
+      example:
+        ok: false
+        state: "down"
+        error: "daemon unreachable"
+
+    DifVerifyResponse:
+      type: object
+      description: |
+        Verification result forwarded from the daemon. The bridge preserves the JSON
+        payload and the most useful ranking fields are `counts`, `semantic_support_score`,
+        `statement_complexity_score`, `structural_cost_score`, `verification_score`, and
+        `trust_profile.signal`.
+      additionalProperties: true
 
     # -------------------------------------------------------------------------
     # RBL Schemas
@@ -4991,6 +5376,18 @@ components:
         Include in the Authorization header:
         ```
         Authorization: Bearer <ACCESS_TOKEN>
+        ```
+
+    DifServiceAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: |
+        Bridge service token loaded from `BRIDGE_DIF_TOKEN`.
+
+        Include in the Authorization header:
+        ```
+        Authorization: Bearer <BRIDGE_DIF_TOKEN>
         ```
 
 security:
