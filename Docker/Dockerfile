@@ -22,6 +22,7 @@ RUN bash /app/prepare-mentor-container-assets.sh Ubuntu $BUILD_ENV
 
 # Install production dependencies
 WORKDIR /app/UI
+RUN jq 'del(.devDependencies)' package.json > package.runtime.json && mv package.runtime.json package.json
 RUN npm install --omit=dev --ignore-scripts
 
 # Change the workdir to the root of the app
