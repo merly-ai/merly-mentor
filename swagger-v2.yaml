@@ -72,14 +72,14 @@ info:
     - `X-RateLimit-Remaining`: Requests remaining
     - `X-RateLimit-Reset`: Unix timestamp when window resets
 
-    ### Swagger-Only Quickstart
+    ### Swagger-Only Quickstart (No Prior Knowledge Required)
 
     The sequence below is sufficient to build a client from scratch and verify the full flow
     (auth -> repository report -> open issues/expressions -> issue insights).
 
     1. Authenticate and store a bearer token:
        - `POST /auth/login`
-       - Use `Authorization: Bearer <ACCESS_TOKEN>` for all protected routes.
+       - Use `Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature` for all protected routes.
     2. Register a repository to analyze:
        - `POST /repositories` with `name` and `git_url`.
        - Expect `202 Accepted` with `job.job_key` for async clone/scan.
@@ -118,16 +118,17 @@ info:
        - `POST /dif/verify`
        - Example body:
          ```json
-         {"language":"python","code":"def f(x):\n    return x == True\n"}
+         {"language":"python","response_mode":"script","code":"def f(x):\n    return x == True\n"}
          ```
-    3. Inspect the response fields that matter for ranking and finetuning:
-       - `counts.expressions_analyzed`
-       - `counts.anomalies`
-       - `semantic_support_score`
-       - `statement_complexity_score`
-       - `structural_cost_score`
-       - `verification_score`
-       - `trust_profile.signal`
+    3. Route high-volume output by `stream` and `tags`, then mine the compact metrics:
+       - `stream`
+       - `tags`
+       - `scores.semantic_support`
+       - `scores.statement_complexity`
+       - `scores.structural_cost`
+       - `scores.verification`
+       - `top_finding`
+       - `top_semantic_signal`
 
     ### Polling Rules
 
@@ -341,10 +342,20 @@ paths:
       summary: Verify a code block with DIF
       description: |
         Analyzes a single code snippet or function body and returns the daemon's
-        JSON response unchanged. This path accepts any code block or function body,
-        not just control-flow expressions. For finetuning, the most useful fields are
-        `counts`, `semantic_support_score`, `statement_complexity_score`,
-        `structural_cost_score`, `verification_score`, and `trust_profile.signal`.
+        JSON response unchanged by default. This path accepts any code block or
+        function body, not just control-flow expressions.
+
+        Set `response_mode=script` to receive a compact routing payload intended
+        for large `curl | jq` pipelines. The compact response exposes a stable
+        `stream` plus deterministic `tags`, score summaries, and the top finding
+        and semantic signal so downstream scripts can bucket or mine results
+        without re-parsing the full verbose object.
+
+        `sensitivity` is an optional routing-width dial for script mode:
+        `0` keeps the default strict routing, while larger values increasingly
+        widen `clear` or `mixed` results into `review` when DIF sees weaker
+        semantic support or higher statement complexity. The underlying verifier
+        findings do not change; only the compact routing layer broadens.
       security:
         - DifServiceAuth: []
       requestBody:
@@ -353,101 +364,324 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/DifVerifyRequest'
-            example:
-              language: python
-              code: |
-                def __add__(self, other):
-                    return self.__cast() + other
+            examples:
+              full:
+                summary: Full verifier response
+                value:
+                  language: python
+                  code: |
+                    def __add__(self, other):
+                        return self.__cast() + other
 
-                def __radd__(self, other):
-                    return other + self.__cast()
+                    def __radd__(self, other):
+                        return other + self.__cast()
+              scriptStrict:
+                summary: Script mode, strict routing
+                value:
+                  language: python
+                  response_mode: script
+                  sensitivity: 0
+                  code: |
+                    class RST(FixedWidth):
+                        data_class = SimpleRSTData
+                        header_class = SimpleRSTHeader
+
+                        def __init__(self, header_rows=None):
+                            super().__init__(delimiter_pad=None, bookend=False, header_rows=header_rows)
+
+                        def write(self, lines):
+                            lines = super().write(lines)
+                            idx = len(self.header.header_rows)
+                            lines = [lines[idx]] + lines + [lines[idx]]
+                            return lines
+
+                        def read(self, table):
+                            self.data.start_line = 2 + len(self.header.header_rows)
+                            return super().read(table)
+              scriptWidened:
+                summary: Script mode, wider routing
+                value:
+                  language: python
+                  response_mode: script
+                  sensitivity: 7
+                  code: |
+                    def get_doc(self, ignore: int = None) -> Optional[List[List[str]]]:
+                        if self.doc_as_attr:
+                            comment = self.get_variable_comment()
+                            if comment:
+                                return []
+                            else:
+                                return None
       responses:
         '200':
           description: Verification result
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DifVerifyResponse'
-              example:
-                contract:
-                  context_mode: snippet_only
-                  coverage_state: analyzed_code_block_subset
-                  job_used: false
-                  language_preloaded: true
-                  lm_used: false
-                  load_triggered: false
-                  repo_context_used: false
-                  scope: analyzed_code_blocks
-                counts:
-                  anomalies: 2
-                  control_expressions_analyzed: 0
-                  expressions_analyzed: 2
-                  non_control_expressions_analyzed: 2
-                  notables: 0
-                findings:
-                  - basis: verifier
-                    cost: 0.25
-                    finding_id: f1
-                    kind: anomaly
-                    expression_kind: expression_statement
-                    span:
-                      start_line: 1
-                      start_col: 1
-                      end_line: 2
-                      end_col: 33
-                    total_score: 989.2630615234375
-                  - basis: verifier
-                    cost: 0.25
-                    finding_id: f2
-                    kind: anomaly
-                    expression_kind: expression_statement
-                    span:
-                      start_line: 4
-                      start_col: 1
-                      end_line: 5
-                      end_col: 33
-                    total_score: 989.2630615234375
-                language: python
-                loaded: true
-                meta:
-                  cold_start: false
-                  deterministic: true
-                  latency_ms: 0
-                model_support_score: 10
-                parse_mode: direct_code_block
-                parsed: true
-                semantic_highlights:
-                  - basis: semantic_shape
-                    exact_occurrences: 1
-                    highlight_id: m1
-                    semantic_family: expression_statement:basic_block
-                    semantic_shape: "(function_definition a def () : )"
+                oneOf:
+                  - $ref: '#/components/schemas/DifVerifyResponse'
+                  - $ref: '#/components/schemas/DifVerifyScriptResponse'
+              examples:
+                full:
+                  summary: Full verifier payload
+                  value:
+                    contract:
+                      context_mode: snippet_only
+                      coverage_state: analyzed_code_block_subset
+                      job_used: false
+                      language_preloaded: true
+                      lm_used: false
+                      load_triggered: false
+                      repo_context_used: false
+                      scope: analyzed_code_blocks
+                    counts:
+                      anomalies: 1
+                      control_expressions_analyzed: 0
+                      expressions_analyzed: 1
+                      non_control_expressions_analyzed: 1
+                      notables: 0
+                    findings:
+                      - basis: verifier
+                        cost: 7.5
+                        finding_id: f1
+                        kind: anomaly
+                        expression_kind: expression_statement
+                        span:
+                          start_line: 1
+                          start_col: 1
+                          end_line: 16
+                          end_col: 35
+                        excerpt: "class RST(FixedWidth):\n    data_class = SimpleRSTData\n    header_class = SimpleRSTHeader\n\n    def __init__(self, header_rows=None):\n        super().__init__(delimiter_pad=None, bookend=False, header_r"
+                        total_score: 1007.3792724609375
+                    language: python
+                    loaded: true
+                    meta:
+                      cold_start: false
+                      deterministic: true
+                      latency_ms: 0
+                    model_support_score: 10
+                    parse_mode: direct_code_block
+                    parsed: true
+                    semantic_highlights:
+                      - basis: semantic_shape
+                        exact_occurrences: 1
+                        excerpt: "class RST(FixedWidth):\n    data_class = SimpleRSTData\n    header_class = SimpleRSTHeader\n\n    def __init__(self, header_rows=None):\n        super().__init__(delimiter_pad=None, bookend=False, header_r"
+                        expression_kind: expression_statement
+                        highlight_id: m1
+                        min_child_occurrences: 1
+                        primary_occurrences: 1
+                        semantic_family: expression_statement:complex_1:assign
+                        semantic_shape: "(class_definition a class b : (c = d, e = f))"
+                        semantic_shape_hash: "argsident || ident"
+                        semantic_support_score: 10
+                        span:
+                          start_line: 1
+                          start_col: 1
+                          end_line: 16
+                          end_col: 35
+                        support_band: very_low
+                        support_interpretation: low_support_shape
+                    semantic_metrics:
+                      avg_primary_occurrences: 1
+                      exact_supported_shape_count: 0
+                      low_support_shape_count: 1
+                      max_primary_occurrences: 1
+                      min_primary_occurrences: 1
+                      novel_shape_count: 0
+                      unique_shape_count: 1
+                      variant_supported_shape_count: 0
+                      zero_support_shape_count: 0
                     semantic_support_score: 10
-                    support_band: very_low
-                    support_interpretation: low_support_shape
-                  - basis: semantic_shape
-                    exact_occurrences: 1
-                    highlight_id: m2
-                    semantic_family: expression_statement:basic_block
-                    semantic_shape: "(function_definition a def () : )"
-                    semantic_support_score: 10
-                    support_band: very_low
-                    support_interpretation: low_support_shape
-                semantic_support_score: 10
-                statement_complexity_score: 26
-                structural_cost_score: 100
-                trust_profile:
-                  basis: verifier_findings
-                  low_support_expression_count: 2
-                  novel_expression_count: 0
-                  positive_expression_count: 0
-                  positive_signal: false
-                  review_worthy: true
-                  signal: review
-                  summary: "review: verifier findings are present in the analyzed expressions"
-                  variant_expression_count: 0
-                verdict: findings
-                verification_score: 35
+                    statement_complexity_score: 72
+                    structural_cost_score: 92
+                    trust_profile:
+                      basis: verifier_findings
+                      low_support_expression_count: 1
+                      novel_expression_count: 0
+                      positive_expression_count: 0
+                      positive_signal: false
+                      review_worthy: true
+                      signal: review
+                      summary: "review: verifier findings are present in the analyzed expressions"
+                      variant_expression_count: 0
+                    verdict: findings
+                    verification_score: 45
+                scriptStrict:
+                  summary: Compact routing payload for curl pipelines
+                  value:
+                    schema_version: dif.verify.script.v2
+                    response_mode: script
+                    language: python
+                    stream: anomaly
+                    base_stream: anomaly
+                    sensitivity_requested: 0
+                    broadened: false
+                    promotion_score: 0
+                    promotion_threshold: 10
+                    promotion_flags: []
+                    tags:
+                      - trust:review
+                      - analysis:code_block
+                      - coverage:analyzed_code_block_subset
+                      - parse:direct_code_block
+                      - finding:anomaly
+                      - support:low_shape
+                      - complexity:high
+                      - sensitivity:0
+                    routing_reason: verifier anomaly present
+                    verdict: findings
+                    trust_signal: review
+                    parse_mode: direct_code_block
+                    coverage_state: analyzed_code_block_subset
+                    scope: analyzed_code_blocks
+                    snippet_loc: 13
+                    counts:
+                      anomalies: 1
+                      control_expressions_analyzed: 0
+                      expressions_analyzed: 1
+                      non_control_expressions_analyzed: 1
+                      notables: 0
+                    scores:
+                      verification: 45
+                      structural_cost: 92
+                      model_support: 10
+                      semantic_support: 10
+                      statement_complexity: 72
+                    complexity:
+                      avg: 72.3271780889323
+                      min: 72.3271780889323
+                      max: 72.3271780889323
+                      avg_expression_cost: 7.5
+                      max_expression_cost: 7.5
+                    semantic:
+                      unique_shape_count: 1
+                      novel_shape_count: 0
+                      low_support_shape_count: 1
+                      exact_supported_shape_count: 0
+                      variant_supported_shape_count: 0
+                    top_finding:
+                      kind: anomaly
+                      expression_kind: expression_statement
+                      span:
+                        start_line: 1
+                        start_col: 1
+                        end_line: 16
+                        end_col: 35
+                      excerpt: "class RST(FixedWidth):\n    data_class = SimpleRSTData\n    header_class = SimpleRSTHeader\n\n    def __init__(self, header_rows=None):\n        super().__init__(delimiter_pad=None, bookend=False, header_r"
+                      cost: 7.5
+                      total_score: 1007.3792724609375
+                    top_semantic_signal:
+                      expression_kind: expression_statement
+                      semantic_family: expression_statement:complex_1:assign
+                      support_interpretation: low_support_shape
+                      semantic_support_score: 10
+                      support_band: very_low
+                      span:
+                        start_line: 1
+                        start_col: 1
+                        end_line: 16
+                        end_col: 35
+                      excerpt: "class RST(FixedWidth):\n    data_class = SimpleRSTData\n    header_class = SimpleRSTHeader\n\n    def __init__(self, header_rows=None):\n        super().__init__(delimiter_pad=None, bookend=False, header_r"
+                    top_structural_signal:
+                      expression_kind: expression_statement
+                      support_band: very_low
+                      cost: 7.5
+                      node_count: 11
+                      tree_depth: 5
+                      span:
+                        start_line: 1
+                        start_col: 1
+                        end_line: 16
+                        end_col: 35
+                      excerpt: "class RST(FixedWidth):\n    data_class = SimpleRSTData\n    header_class = SimpleRSTHeader\n\n    def __init__(self, header_rows=None):\n        super().__init__(delimiter_pad=None, bookend=False, header_r"
+                    meta:
+                      cold_start: false
+                      deterministic: true
+                      latency_ms: 0
+                scriptWidened:
+                  summary: Wider script routing with `sensitivity=7`
+                  value:
+                    schema_version: dif.verify.script.v2
+                    response_mode: script
+                    language: python
+                    stream: review
+                    base_stream: clear
+                    sensitivity_requested: 7
+                    broadened: true
+                    promotion_score: 3
+                    promotion_threshold: 3
+                    promotion_flags:
+                      - semantic_support<=85
+                      - statement_complexity>=25
+                    tags:
+                      - trust:positive
+                      - analysis:control
+                      - coverage:analyzed_expression_subset
+                      - parse:direct
+                      - support:exact_supported
+                      - complexity:low
+                      - sensitivity:7
+                      - sensitivity:broadened
+                    routing_reason: sensitivity 7 widened clear -> review
+                    verdict: clear
+                    trust_signal: positive
+                    parse_mode: direct
+                    coverage_state: analyzed_expression_subset
+                    scope: analyzed_expressions_only
+                    snippet_loc: 7
+                    counts:
+                      anomalies: 0
+                      control_expressions_analyzed: 2
+                      expressions_analyzed: 2
+                      non_control_expressions_analyzed: 0
+                      notables: 0
+                    scores:
+                      verification: 100
+                      structural_cost: 99
+                      model_support: 100
+                      semantic_support: 84
+                      statement_complexity: 25
+                    complexity:
+                      avg: 25.20238924373549
+                      min: 13.363100615987602
+                      max: 37.04167787148338
+                      avg_expression_cost: 0.75
+                      max_expression_cost: 1.5
+                    semantic:
+                      unique_shape_count: 1
+                      novel_shape_count: 0
+                      low_support_shape_count: 0
+                      exact_supported_shape_count: 2
+                      variant_supported_shape_count: 0
+                    top_finding: null
+                    top_semantic_signal:
+                      expression_kind: if_statement
+                      semantic_family: if_statement:trivial
+                      support_interpretation: common_exact_shape
+                      semantic_support_score: 67
+                      support_band: medium
+                      span:
+                        start_line: 4
+                        start_col: 12
+                        end_line: 4
+                        end_col: 19
+                      excerpt: comment
+                    top_structural_signal:
+                      expression_kind: if_statement
+                      support_band: medium
+                      cost: 0.0
+                      node_count: 2
+                      tree_depth: 2
+                      span:
+                        start_line: 4
+                        start_col: 12
+                        end_line: 4
+                        end_col: 19
+                      excerpt: comment
+                    meta:
+                      cold_start: false
+                      deterministic: true
+                      latency_ms: 0
         '401':
           $ref: '#/components/responses/DifUnauthorized'
         '502':
@@ -485,8 +719,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthTokens'
               example:
-                access_token: "<ACCESS_TOKEN>"
-                refresh_token: "<REFRESH_TOKEN>"
+                access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.access.1709491200"
+                refresh_token: "rt_3b6f72e0e7b94bb4b1833aa9f2f6a08c"
                 token_type: "Bearer"
                 expires_in: 900
         '401':
@@ -1048,7 +1282,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [C, CPP, PYTHON, JAVA, JAVASCRIPT, TYPESCRIPT, GO, RUST, CSHARP, RUBY, PHP, SWIFT, KOTLIN]
+            enum: [C, CPP, PYTHON, JAVA, JAVASCRIPT, TYPESCRIPT, GO, RUST, CSHARP, RUBY, PHP, SWIFT, DART, KOTLIN]
             example: "PYTHON"
           description: Filter by programming language
         - name: repository_id
@@ -3760,7 +3994,7 @@ components:
         refresh_token:
           type: string
       example:
-        refresh_token: "<REFRESH_TOKEN>"
+        refresh_token: "rt_3b6f72e0e7b94bb4b1833aa9f2f6a08c"
 
     AuthTokens:
       type: object
@@ -3779,8 +4013,8 @@ components:
           description: Access token expiry in seconds
           example: 900
       example:
-        access_token: "<ACCESS_TOKEN>"
-        refresh_token: "<REFRESH_TOKEN>"
+        access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.access.1709491200"
+        refresh_token: "rt_3b6f72e0e7b94bb4b1833aa9f2f6a08c"
         token_type: "Bearer"
         expires_in: 900
 
@@ -4163,11 +4397,31 @@ components:
         language:
           type: string
           description: Supported language slug, for example `python`
+        response_mode:
+          type: string
+          description: |
+            Optional response shape. Omit or set to `full` for the existing verbose
+            verifier payload. Set to `script` for the compact routing payload used
+            by high-volume `curl | jq` pipelines.
+          enum: [full, script]
+        sensitivity:
+          type: integer
+          minimum: 0
+          maximum: 10
+          default: 0
+          description: |
+            Optional routing-width dial for `response_mode=script`. `0` keeps the
+            default strict routing. Higher values progressively widen `clear` or
+            `mixed` outputs into `review` when DIF sees weaker semantic support or
+            higher statement complexity. This does not change the underlying
+            verifier findings.
         code:
           type: string
           description: Code block, function body, or snippet to analyze
       example:
         language: "python"
+        response_mode: "script"
+        sensitivity: 0
         code: |
           def __add__(self, other):
               return self.__cast() + other
@@ -4210,6 +4464,104 @@ components:
         `trust_profile.signal`.
       additionalProperties: true
 
+    DifVerifyScriptResponse:
+      type: object
+      description: |
+        Compact DIF routing payload for shell pipelines and large-scale snippet
+        mining. The daemon assigns a stable `stream` plus deterministic `tags`,
+        summarized scores, and the top finding/semantic signals so callers can
+        bucket millions of calls without re-reading the full verifier payload.
+      required:
+        - schema_version
+        - response_mode
+        - language
+        - stream
+        - base_stream
+        - sensitivity_requested
+        - broadened
+        - tags
+        - scores
+      properties:
+        schema_version:
+          type: string
+          example: "dif.verify.script.v2"
+        response_mode:
+          type: string
+          enum: [script]
+        language:
+          type: string
+        stream:
+          type: string
+          description: Primary routing bucket such as `anomaly`, `review`, `mixed`, `clear`, or `inconclusive`.
+        base_stream:
+          type: string
+          description: Strict routing bucket before any `sensitivity` widening is applied.
+        sensitivity_requested:
+          type: integer
+          minimum: 0
+          maximum: 10
+        broadened:
+          type: boolean
+          description: True when `sensitivity` widened `base_stream` into a broader `stream`.
+        promotion_score:
+          type: integer
+          description: Internal widening score accumulated from support and complexity signals.
+        promotion_threshold:
+          type: integer
+          description: Threshold the widening score had to meet for this `sensitivity`.
+        promotion_flags:
+          type: array
+          items:
+            type: string
+          description: Deterministic reasons why sensitivity widening was triggered.
+        tags:
+          type: array
+          items:
+            type: string
+          description: Deterministic secondary routing labels for `jq`/stream splitting.
+        routing_reason:
+          type: string
+        verdict:
+          type: string
+        trust_signal:
+          type: string
+        parse_mode:
+          type: string
+        coverage_state:
+          type: string
+        scope:
+          type: string
+        snippet_loc:
+          type: integer
+        counts:
+          type: object
+          additionalProperties: true
+        scores:
+          type: object
+          additionalProperties: true
+        complexity:
+          type: object
+          additionalProperties: true
+        semantic:
+          type: object
+          additionalProperties: true
+        top_finding:
+          nullable: true
+          type: object
+          additionalProperties: true
+        top_semantic_signal:
+          nullable: true
+          type: object
+          additionalProperties: true
+        top_structural_signal:
+          nullable: true
+          type: object
+          additionalProperties: true
+        meta:
+          type: object
+          additionalProperties: true
+      additionalProperties: true
+
     # -------------------------------------------------------------------------
     # RBL Schemas
     # -------------------------------------------------------------------------
@@ -4231,7 +4583,7 @@ components:
           readOnly: true
         language:
           type: string
-          enum: [C, CPP, PYTHON, JAVA, JAVASCRIPT, TYPESCRIPT, GO, RUST, CSHARP, RUBY, PHP, SWIFT, KOTLIN]
+          enum: [C, CPP, PYTHON, JAVA, JAVASCRIPT, TYPESCRIPT, GO, RUST, CSHARP, RUBY, PHP, SWIFT, DART, KOTLIN]
         status:
           type: string
           enum: [active, scanning, paused, error]
@@ -5304,7 +5656,7 @@ components:
       properties:
         language:
           type: string
-          enum: [C, CPP, PYTHON, JAVA, JAVASCRIPT, TYPESCRIPT, GO, RUST, CSHARP, RUBY, PHP, SWIFT, KOTLIN]
+          enum: [C, CPP, PYTHON, JAVA, JAVASCRIPT, TYPESCRIPT, GO, RUST, CSHARP, RUBY, PHP, SWIFT, DART, KOTLIN]
           description: Programming language name
         file_count:
           type: integer
@@ -5375,7 +5727,7 @@ components:
         
         Include in the Authorization header:
         ```
-        Authorization: Bearer <ACCESS_TOKEN>
+        Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature
         ```
 
     DifServiceAuth:
