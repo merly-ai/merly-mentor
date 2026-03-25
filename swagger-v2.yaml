@@ -273,7 +273,6 @@ paths:
         Returns the language support matrix exposed by the bridge's DIF analyzer.
         The bridge serves this path under `/api/v2/dif/languages` and accepts:
         - `X-API-Key: <key>`
-        - legacy `X-DIF-API-Key: <key>`
         - `Authorization: Bearer <dif_api_key>`
         - a normal Bridge JWT bearer token
         - the bridge service token configured in `BRIDGE_DIF_TOKEN`
@@ -322,7 +321,6 @@ paths:
 
         This endpoint accepts:
         - `X-API-Key: <key>`
-        - legacy `X-DIF-API-Key: <key>`
         - `Authorization: Bearer <dif_api_key>`
         - a normal Bridge JWT bearer token
         - the bridge service token configured in `BRIDGE_DIF_TOKEN`
@@ -390,7 +388,6 @@ paths:
         Access modes:
         - anonymous, rate-limited access for light public usage
         - `X-API-Key: <key>` for authenticated access without JWT
-        - legacy `X-DIF-API-Key: <key>`
         - `Authorization: Bearer <dif_api_key>` as an alternative transport
         - a normal Bridge JWT bearer token
         - the bridge service token configured in `BRIDGE_DIF_TOKEN`
@@ -738,11 +735,10 @@ paths:
       description: |
         Returns the current identity used for DIF key management. This route is intended
         for self-serve tooling and supports:
-        - `X-CC-API-Key: <key>` for Coherence identity-backed DIF key management
-        - `X-API-Key: <key>` for API-key-authenticated self-service access
+        - `X-API-Key: <key>` with a current identity key to bootstrap DIF key management
+        - `X-API-Key: <key>` with an issued Mentor API key for self-service access
         - a normal Bridge JWT bearer token
       security:
-        - CCIdentityKeyAuth: []
         - ApiKeyAuth: []
         - BearerAuth: []
       responses:
@@ -761,10 +757,8 @@ paths:
       operationId: listDifCurrentIdentityApiKeys
       summary: List DIF API keys for the current identity
       description: |
-        Lists DIF API keys owned by the currently authenticated Coherence identity
-        or Bridge user.
+        Lists DIF API keys owned by the currently authenticated identity.
       security:
-        - CCIdentityKeyAuth: []
         - ApiKeyAuth: []
         - BearerAuth: []
       responses:
@@ -784,7 +778,6 @@ paths:
         Creates a DIF API key owned by the current identity. The raw key token is
         returned once in the creation response and is never returned again.
       security:
-        - CCIdentityKeyAuth: []
         - ApiKeyAuth: []
         - BearerAuth: []
       requestBody:
@@ -811,7 +804,6 @@ paths:
       operationId: updateDifCurrentIdentityApiKey
       summary: Update DIF API key metadata
       security:
-        - CCIdentityKeyAuth: []
         - ApiKeyAuth: []
         - BearerAuth: []
       parameters:
@@ -842,7 +834,6 @@ paths:
       operationId: revokeDifCurrentIdentityApiKey
       summary: Revoke a DIF API key
       security:
-        - CCIdentityKeyAuth: []
         - ApiKeyAuth: []
         - BearerAuth: []
       parameters:
@@ -867,7 +858,6 @@ paths:
       description: |
         Revokes the existing DIF key and returns a newly issued replacement token once.
       security:
-        - CCIdentityKeyAuth: []
         - ApiKeyAuth: []
         - BearerAuth: []
       parameters:
@@ -894,7 +884,6 @@ paths:
       operationId: getDifCurrentIdentityApiKeyUsage
       summary: Read usage for one DIF API key
       security:
-        - CCIdentityKeyAuth: []
         - ApiKeyAuth: []
         - BearerAuth: []
       parameters:
@@ -921,7 +910,6 @@ paths:
       operationId: getDifCurrentIdentityUsage
       summary: Read aggregate DIF usage for the current identity
       security:
-        - CCIdentityKeyAuth: []
         - ApiKeyAuth: []
         - BearerAuth: []
       responses:
@@ -940,7 +928,6 @@ paths:
       operationId: getDifCurrentIdentityLimits
       summary: Read DIF plan and limit state for the current identity
       security:
-        - CCIdentityKeyAuth: []
         - ApiKeyAuth: []
         - BearerAuth: []
       responses:
@@ -959,7 +946,6 @@ paths:
       operationId: getDifCurrentIdentityFunding
       summary: Read DIF funding and billing state for the current identity
       security:
-        - CCIdentityKeyAuth: []
         - ApiKeyAuth: []
         - BearerAuth: []
       responses:
@@ -4887,7 +4873,7 @@ components:
           example: user
         auth_mode:
           type: string
-          example: cc_api_key
+          example: api_key
         user_id:
           type: integer
           example: 42
@@ -6272,26 +6258,15 @@ components:
         X-API-Key: dif_pk_...<secret>
         ```
 
+        The same header is also used for DIF self-service key management bootstrap.
+        Before an issued Mentor API key exists, a current identity key may be supplied
+        in `X-API-Key` to create and manage that identity's DIF API keys.
+
         The same key may also be sent as:
         ```
         Authorization: Bearer dif_pk_...<secret>
         ```
 
-        Compatibility note:
-        the legacy `X-DIF-API-Key` header is still accepted by the service.
-
-    CCIdentityKeyAuth:
-      type: apiKey
-      in: header
-      name: X-CC-API-Key
-      description: |
-        Coherence identity API key used to manage DIF API keys and read the
-        current contributor's DIF usage, limits, and funding state.
-
-        Include in the request header:
-        ```
-        X-CC-API-Key: <coherence_identity_key>
-        ```
 
 security:
   - BearerAuth: []
