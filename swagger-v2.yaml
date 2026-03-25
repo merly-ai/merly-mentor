@@ -111,7 +111,7 @@ info:
     The bridge exposes DIF through `/api/v2/dif/*`.
     Calls may authenticate with either:
     - anonymous, rate-limited access for `POST /dif/verify`
-    - a DIF API key via `X-DIF-API-Key` or `Authorization: Bearer <dif_api_key>`
+    - an API key via `X-API-Key` or `Authorization: Bearer <dif_api_key>`
     - a normal Bridge JWT bearer token from `/auth/login` or `/auth/token`
     - the bridge service token configured in `BRIDGE_DIF_TOKEN`
 
@@ -272,12 +272,13 @@ paths:
       description: |
         Returns the language support matrix exposed by the bridge's DIF analyzer.
         The bridge serves this path under `/api/v2/dif/languages` and accepts:
-        - `X-DIF-API-Key: <key>`
+        - `X-API-Key: <key>`
+        - legacy `X-DIF-API-Key: <key>`
         - `Authorization: Bearer <dif_api_key>`
         - a normal Bridge JWT bearer token
         - the bridge service token configured in `BRIDGE_DIF_TOKEN`
       security:
-        - DifAPIKeyAuth: []
+        - ApiKeyAuth: []
         - BearerAuth: []
         - DifServiceAuth: []
       responses:
@@ -320,12 +321,13 @@ paths:
         is rejected by the daemon build used in this workspace.
 
         This endpoint accepts:
-        - `X-DIF-API-Key: <key>`
+        - `X-API-Key: <key>`
+        - legacy `X-DIF-API-Key: <key>`
         - `Authorization: Bearer <dif_api_key>`
         - a normal Bridge JWT bearer token
         - the bridge service token configured in `BRIDGE_DIF_TOKEN`
       security:
-        - DifAPIKeyAuth: []
+        - ApiKeyAuth: []
         - BearerAuth: []
         - DifServiceAuth: []
       requestBody:
@@ -387,13 +389,14 @@ paths:
 
         Access modes:
         - anonymous, rate-limited access for light public usage
-        - `X-DIF-API-Key: <key>` for authenticated access without JWT
+        - `X-API-Key: <key>` for authenticated access without JWT
+        - legacy `X-DIF-API-Key: <key>`
         - `Authorization: Bearer <dif_api_key>` as an alternative transport
         - a normal Bridge JWT bearer token
         - the bridge service token configured in `BRIDGE_DIF_TOKEN`
       security:
         - {}
-        - DifAPIKeyAuth: []
+        - ApiKeyAuth: []
         - BearerAuth: []
         - DifServiceAuth: []
       requestBody:
@@ -736,9 +739,11 @@ paths:
         Returns the current identity used for DIF key management. This route is intended
         for self-serve tooling and supports:
         - `X-CC-API-Key: <key>` for Coherence identity-backed DIF key management
+        - `X-API-Key: <key>` for API-key-authenticated self-service access
         - a normal Bridge JWT bearer token
       security:
         - CCIdentityKeyAuth: []
+        - ApiKeyAuth: []
         - BearerAuth: []
       responses:
         '200':
@@ -760,6 +765,7 @@ paths:
         or Bridge user.
       security:
         - CCIdentityKeyAuth: []
+        - ApiKeyAuth: []
         - BearerAuth: []
       responses:
         '200':
@@ -779,6 +785,7 @@ paths:
         returned once in the creation response and is never returned again.
       security:
         - CCIdentityKeyAuth: []
+        - ApiKeyAuth: []
         - BearerAuth: []
       requestBody:
         required: true
@@ -805,6 +812,7 @@ paths:
       summary: Update DIF API key metadata
       security:
         - CCIdentityKeyAuth: []
+        - ApiKeyAuth: []
         - BearerAuth: []
       parameters:
         - name: key_id
@@ -835,6 +843,7 @@ paths:
       summary: Revoke a DIF API key
       security:
         - CCIdentityKeyAuth: []
+        - ApiKeyAuth: []
         - BearerAuth: []
       parameters:
         - name: key_id
@@ -859,6 +868,7 @@ paths:
         Revokes the existing DIF key and returns a newly issued replacement token once.
       security:
         - CCIdentityKeyAuth: []
+        - ApiKeyAuth: []
         - BearerAuth: []
       parameters:
         - name: key_id
@@ -885,6 +895,7 @@ paths:
       summary: Read usage for one DIF API key
       security:
         - CCIdentityKeyAuth: []
+        - ApiKeyAuth: []
         - BearerAuth: []
       parameters:
         - name: key_id
@@ -911,6 +922,7 @@ paths:
       summary: Read aggregate DIF usage for the current identity
       security:
         - CCIdentityKeyAuth: []
+        - ApiKeyAuth: []
         - BearerAuth: []
       responses:
         '200':
@@ -929,6 +941,7 @@ paths:
       summary: Read DIF plan and limit state for the current identity
       security:
         - CCIdentityKeyAuth: []
+        - ApiKeyAuth: []
         - BearerAuth: []
       responses:
         '200':
@@ -947,6 +960,7 @@ paths:
       summary: Read DIF funding and billing state for the current identity
       security:
         - CCIdentityKeyAuth: []
+        - ApiKeyAuth: []
         - BearerAuth: []
       responses:
         '200':
@@ -4033,9 +4047,9 @@ components:
             $ref: '#/components/schemas/ProblemDetail'
           example:
             type: "authentication_failed"
-            title: "Missing Authorization header"
+            title: "Missing credentials"
             status: 401
-            detail: "Authorization header is required for this endpoint"
+            detail: "Authorization header or X-API-Key is required for this endpoint"
         application/json:
           schema:
             $ref: '#/components/schemas/DifBridgeErrorResponse'
@@ -6246,22 +6260,25 @@ components:
         Authorization: Bearer <BRIDGE_DIF_TOKEN>
         ```
 
-    DifAPIKeyAuth:
+    ApiKeyAuth:
       type: apiKey
       in: header
-      name: X-DIF-API-Key
+      name: X-API-Key
       description: |
-        DIF API key for authenticated DIF access without JWT.
+        API key for authenticated Mentor API access without JWT.
 
         Preferred header:
         ```
-        X-DIF-API-Key: dif_pk_...<secret>
+        X-API-Key: dif_pk_...<secret>
         ```
 
         The same key may also be sent as:
         ```
         Authorization: Bearer dif_pk_...<secret>
         ```
+
+        Compatibility note:
+        the legacy `X-DIF-API-Key` header is still accepted by the service.
 
     CCIdentityKeyAuth:
       type: apiKey
@@ -6278,3 +6295,4 @@ components:
 
 security:
   - BearerAuth: []
+  - ApiKeyAuth: []
