@@ -1,7 +1,7 @@
 # =============================================================================
 # Mentor API v2 - RESTful API with Industry Best Practices
 # =============================================================================
-# 
+#
 # Key Improvements over v1:
 # - Flat resource access (direct /rbls/{id}, /snapshots/{id})
 # - Consistent snake_case naming throughout
@@ -19,11 +19,11 @@ info:
   version: 2.0.0
   description: |
     ## Overview
-    
+
     API v2 for managing and analyzing git-based code repositories with lifetime analysis.
 
     ### Domain Model
-    
+
     ```
     Repository (Repo)
         └── Branch (RepoBranch)
@@ -33,7 +33,7 @@ info:
     ```
 
     ### Key Improvements in v2
-    
+
     - **Flat Resource Access**: Access any resource directly (`/rbls/{id}`) or via hierarchy
     - **Consistent Naming**: All properties use `snake_case`
     - **Standard Errors**: RFC 7807 Problem Details format
@@ -42,11 +42,11 @@ info:
     - **Proper HTTP Semantics**: Correct status codes, ETags, caching
 
     ### Pagination
-    
+
     All collection endpoints support cursor-based pagination:
     - `cursor`: Opaque cursor for next page
     - `limit`: Items per page (default: 20, max: 100)
-    
+
     Response includes:
     ```json
     {
@@ -61,12 +61,12 @@ info:
     ```
 
     ### Filtering & Sorting
-    
+
     - `sort`: Comma-separated fields, prefix `-` for descending (`sort=-created_at,name`)
     - `filter`: JSON object for field filtering (`filter={"status":"active"}`)
 
     ### Rate Limiting
-    
+
     Response headers include:
     - `X-RateLimit-Limit`: Requests allowed per window
     - `X-RateLimit-Remaining`: Requests remaining
@@ -113,7 +113,14 @@ info:
     - anonymous, rate-limited access for `POST /dif/verify`
     - a DIF API key via `X-DIF-API-Key` or `Authorization: Bearer <dif_api_key>`
     - a normal Bridge JWT bearer token from `/auth/login` or `/auth/token`
-    - the bridge service token configured in `BRIDGE_DIF_TOKEN`.
+    - the bridge service token configured in `BRIDGE_DIF_TOKEN`
+
+    For DIF verification calls, the bridge records per-call telemetry for operator
+    analysis and model-improvement loops. The telemetry includes actor type, user ID
+    when JWT-authenticated, session UUID, request IP, `X-Forwarded-For`, user agent,
+    a hashed auth fingerprint, latency, and DIF routing/score summaries. Raw request
+    and response payload capture is controlled through Settings -> Configuration via
+    `dif_capture_payloads` and defaults to enabled.
 
     1. Load the Python language model:
        - `POST /dif/languages/load`
@@ -184,7 +191,7 @@ info:
     email: support@merly.ai
   license:
     name: Proprietary
-    url: https://merly.ai/terms
+    url: https://www.merly.ai/terms-of-service
 
 servers:
   - url: /api/v2
@@ -301,8 +308,6 @@ paths:
           $ref: '#/components/responses/DifUnauthorized'
         '502':
           $ref: '#/components/responses/DifDaemonDown'
-        '503':
-          $ref: '#/components/responses/DifDisabled'
 
   /dif/languages/load:
     post:
@@ -349,8 +354,6 @@ paths:
           $ref: '#/components/responses/DifUnauthorized'
         '502':
           $ref: '#/components/responses/DifDaemonDown'
-        '503':
-          $ref: '#/components/responses/DifDisabled'
 
   /dif/verify:
     post:
@@ -373,6 +376,14 @@ paths:
         widen `clear` or `mixed` results into `review` when DIF sees weaker
         semantic support or higher statement complexity. The underlying verifier
         findings do not change; only the compact routing layer broadens.
+
+        The bridge also records verification telemetry for this endpoint so operators
+        can see which callers are using DIF, how each session behaves, and where
+        additional trust/model improvements are needed. Stored telemetry includes:
+        actor type, user ID when JWT-authenticated, session UUID, request IP,
+        `X-Forwarded-For`, user agent, a hashed auth fingerprint, request/response
+        byte counts, latency, and DIF routing/score summaries. Raw request/response
+        payloads are stored when `dif_capture_payloads` is enabled in settings.
 
         Access modes:
         - anonymous, rate-limited access for light public usage
@@ -715,8 +726,237 @@ paths:
           $ref: '#/components/responses/DifRateLimited'
         '502':
           $ref: '#/components/responses/DifDaemonDown'
-        '503':
-          $ref: '#/components/responses/DifDisabled'
+
+  /dif/me:
+    get:
+      tags: [DIF]
+      operationId: getDifCurrentIdentity
+      summary: Resolve the current DIF management identity
+      description: |
+        Returns the current identity used for DIF key management. This route is intended
+        for self-serve tooling and supports:
+        - `X-CC-API-Key: <key>` for Coherence identity-backed DIF key management
+        - a normal Bridge JWT bearer token
+      security:
+        - CCIdentityKeyAuth: []
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current DIF management identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifCurrentIdentityResponse'
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+
+  /dif/me/api-keys:
+    get:
+      tags: [DIF]
+      operationId: listDifCurrentIdentityApiKeys
+      summary: List DIF API keys for the current identity
+      description: |
+        Lists DIF API keys owned by the currently authenticated Coherence identity
+        or Bridge user.
+      security:
+        - CCIdentityKeyAuth: []
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Active DIF API keys
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifAPIKeyListResponse'
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+    post:
+      tags: [DIF]
+      operationId: createDifCurrentIdentityApiKey
+      summary: Create a DIF API key for the current identity
+      description: |
+        Creates a DIF API key owned by the current identity. The raw key token is
+        returned once in the creation response and is never returned again.
+      security:
+        - CCIdentityKeyAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DifAPIKeyCreateRequest'
+      responses:
+        '201':
+          description: DIF API key created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifAPIKeyResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+
+  /dif/me/api-keys/{key_id}:
+    patch:
+      tags: [DIF]
+      operationId: updateDifCurrentIdentityApiKey
+      summary: Update DIF API key metadata
+      security:
+        - CCIdentityKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: key_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DifAPIKeyUpdateRequest'
+      responses:
+        '200':
+          description: Updated DIF API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifAPIKeyResponse'
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [DIF]
+      operationId: revokeDifCurrentIdentityApiKey
+      summary: Revoke a DIF API key
+      security:
+        - CCIdentityKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: key_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: DIF API key revoked
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /dif/me/api-keys/{key_id}/rotate:
+    post:
+      tags: [DIF]
+      operationId: rotateDifCurrentIdentityApiKey
+      summary: Rotate a DIF API key
+      description: |
+        Revokes the existing DIF key and returns a newly issued replacement token once.
+      security:
+        - CCIdentityKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: key_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          description: Rotated DIF API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifAPIKeyResponse'
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /dif/me/api-keys/{key_id}/usage:
+    get:
+      tags: [DIF]
+      operationId: getDifCurrentIdentityApiKeyUsage
+      summary: Read usage for one DIF API key
+      security:
+        - CCIdentityKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: key_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Usage summary for one DIF API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifUsageSummary'
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /dif/me/usage:
+    get:
+      tags: [DIF]
+      operationId: getDifCurrentIdentityUsage
+      summary: Read aggregate DIF usage for the current identity
+      security:
+        - CCIdentityKeyAuth: []
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Aggregate DIF usage across the current identity's keys
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifUsageSummary'
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+
+  /dif/me/limits:
+    get:
+      tags: [DIF]
+      operationId: getDifCurrentIdentityLimits
+      summary: Read DIF plan and limit state for the current identity
+      security:
+        - CCIdentityKeyAuth: []
+        - BearerAuth: []
+      responses:
+        '200':
+          description: DIF plan, rate, and key-access limits
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifLimitsResponse'
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+
+  /dif/me/funding:
+    get:
+      tags: [DIF]
+      operationId: getDifCurrentIdentityFunding
+      summary: Read DIF funding and billing state for the current identity
+      security:
+        - CCIdentityKeyAuth: []
+        - BearerAuth: []
+      responses:
+        '200':
+          description: DIF funding and billing state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifFundingResponse'
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
 
   # ---------------------------------------------------------------------------
   # Authentication
@@ -728,7 +968,7 @@ paths:
       summary: Authenticate user
       description: |
         Authenticates a user and returns JWT access and refresh tokens.
-        
+
         Access tokens expire in 15 minutes. Use the refresh token to obtain new access tokens.
       security: []
       requestBody:
@@ -859,7 +1099,7 @@ paths:
       summary: Add repository for analysis
       description: |
         Adds an existing git repository to the system for analysis.
-        
+
         This is an asynchronous operation. The API returns `202 Accepted` and includes
         a `job.job_key` to track clone progress via `/jobs/{job_key}`.
 
@@ -1501,10 +1741,10 @@ paths:
       summary: Create new snapshot(s)
       description: |
         Initiates creation of one or more analysis snapshots.
-        
+
         Snapshot creation is asynchronous. The response includes a `job_key`
         that can be used to track progress via `/jobs/{job_key}`.
-        
+
         Methods:
         - `single`: Analyze at HEAD (value ignored)
         - `count`: Create N snapshots at evenly-spaced commits
@@ -1579,7 +1819,7 @@ paths:
       description: |
         Retrieves all code quality issues for an RBL from the latest snapshot.
         Issues can be filtered by severity, file, status, etc.
-        
+
         **Note**: This endpoint returns issues from the most recent snapshot.
         For issues from a specific snapshot, use `/rbls/{rbl_id}/snapshots/{snapshot_id}/issues`.
         To fetch open issues only, use `status=open`.
@@ -1674,7 +1914,7 @@ paths:
       summary: Get issue details
       description: |
         Retrieves detailed information about a specific issue within an RBL.
-        
+
         **Note**: Issue IDs are unique only within an RBL context, so the RBL ID
         must be specified in the path.
       responses:
@@ -1713,7 +1953,7 @@ paths:
       description: |
         Updates issue metadata such as assignee, status, action, or comments.
         Issue detection data (file, line, snippet) is immutable.
-        
+
         **Note**: Issue IDs are unique only within an RBL context, so the RBL ID
         must be specified in the path.
       requestBody:
@@ -1774,7 +2014,7 @@ paths:
       description: |
         Retrieves detailed information about a specific snapshot including
         score, issue counts, file statistics, and analysis metadata.
-        
+
         **Note**: Snapshot IDs are unique only within an RBL context, so the RBL ID
         must be specified in the path.
       responses:
@@ -1795,7 +2035,7 @@ paths:
       summary: Delete a snapshot
       description: |
         Removes a specific snapshot and its analysis data.
-        
+
         **Note**: Snapshot IDs are unique only within an RBL context, so the RBL ID
         must be specified in the path.
       responses:
@@ -1818,7 +2058,7 @@ paths:
       description: |
         Retrieves all code quality issues detected in a specific snapshot.
         Issues can be filtered by severity, file, status, etc.
-        
+
         **Note**: Snapshot IDs are unique only within an RBL context, so the RBL ID
         must be specified in the path.
         This endpoint provides deterministic issue retrieval for a specific analysis run.
@@ -1979,7 +2219,7 @@ paths:
       summary: Get job status
       description: |
         Retrieves the current status of an async job.
-        
+
         Poll this endpoint to track progress of:
         - Repository cloning (`clone`)
         - Snapshot creation (`infer_points`)
@@ -2040,14 +2280,14 @@ paths:
       summary: List users
       description: |
         Retrieves a paginated list of all users in the system.
-        
+
         **Access Control**: Requires admin privileges (role: admin or owner).
-        
+
         **Pagination**: Uses cursor-based pagination. Use `limit` to control page size
         and `cursor` to navigate to the next page.
-        
+
         **Filtering**: Filter by role using the `role` query parameter.
-        
+
         **Example**:
         ```bash
         GET /api/v2/users?limit=20&role=admin
@@ -2240,7 +2480,7 @@ paths:
       description: |
         Retrieves all code authors (contributors) associated with an RBL.
         Authors are identified by their names and emails extracted from git commit history.
-        
+
         This endpoint returns authors who have contributed code to the branch+language
         context represented by the RBL. Author information includes name variations,
         email addresses, and contribution scores.
@@ -2279,7 +2519,7 @@ paths:
       description: |
         Retrieves all code authors (contributors) associated with a specific snapshot.
         This provides a point-in-time view of contributors at a specific git commit.
-        
+
         **Note**: Snapshot IDs are unique only within an RBL context, so the RBL ID
         must be specified in the path.
       parameters:
@@ -2388,7 +2628,7 @@ paths:
       description: |
         Retrieves detailed information about a specific file including its path,
         size, line counts, and associated expressions.
-        
+
         **Note**: File IDs are unique only within an RBL context, so the RBL ID
         must be specified in the path.
       responses:
@@ -2432,7 +2672,7 @@ paths:
       description: |
         Retrieves the version history for a specific file across all snapshots
         in an RBL. Each version represents the file at a specific git commit.
-        
+
         **Note**: File IDs are unique only within an RBL context, so the RBL ID
         must be specified in the path.
       parameters:
@@ -2489,7 +2729,7 @@ paths:
         Retrieves all file versions present in a specific snapshot.
         This provides a point-in-time view of all files and their versions
         at a specific git commit.
-        
+
         **Note**: Snapshot IDs are unique only within an RBL context, so the RBL ID
         must be specified in the path.
       parameters:
@@ -2631,7 +2871,7 @@ paths:
       description: |
         Retrieves detailed information about a specific expression including
         its snippet, score, cost, and associated instances.
-        
+
         **Note**: Expression IDs are unique only within an RBL context, so the RBL ID
         must be specified in the path.
       responses:
@@ -2671,7 +2911,7 @@ paths:
       description: |
         Retrieves all expressions present in a specific snapshot.
         This provides a point-in-time view of code patterns at a specific git commit.
-        
+
         **Note**: Snapshot IDs are unique only within an RBL context, so the RBL ID
         must be specified in the path.
       parameters:
@@ -2732,7 +2972,7 @@ paths:
         - `202` with a `job_key` while insight generation is running
 
         Poll `/jobs/{job_key}` and call this endpoint again until you receive terminal insight data.
-        
+
         **Note**: Issue IDs are unique only within an RBL context, so the RBL ID
         must be specified in the path.
       responses:
@@ -2823,7 +3063,7 @@ paths:
         - `202` with a `job_key` while insight generation is running
 
         Poll `/jobs/{job_key}` and call this endpoint again until you receive terminal insight data.
-        
+
         **Note**: Expression IDs are unique only within an RBL context, so the RBL ID
         must be specified in the path.
       responses:
@@ -3021,7 +3261,7 @@ paths:
       summary: Get watch config details
       description: |
         Retrieves detailed information about a specific watch configuration.
-        
+
         **Note**: Config IDs are unique only within an RBL context, so the RBL ID
         must be specified in the path.
       responses:
@@ -3049,7 +3289,7 @@ paths:
       summary: Update watch config (partial)
       description: |
         Updates a watch configuration. Only specified fields are updated.
-        
+
         **Note**: Config IDs are unique only within an RBL context, so the RBL ID
         must be specified in the path.
       requestBody:
@@ -3146,7 +3386,7 @@ paths:
       summary: Delete watch config
       description: |
         Removes a watch configuration.
-        
+
         **Note**: Config IDs are unique only within an RBL context, so the RBL ID
         must be specified in the path.
       responses:
@@ -3521,7 +3761,7 @@ paths:
       summary: Update user password
       description: |
         Updates the password for a user account.
-        
+
         **Access Control**: Users can update their own password. Admins can update
         any user's password.
       requestBody:
@@ -3553,7 +3793,7 @@ paths:
       description: |
         Initiates a password reset process for a user account.
         This endpoint sends a password reset email to the user's registered email address.
-        
+
         **Security**: This endpoint does not require authentication and always returns
         the same `202` message to avoid revealing whether an account exists.
       requestBody:
@@ -3744,6 +3984,11 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetail'
+          example:
+            type: authentication_failed
+            title: Unauthorized
+            status: 401
+            detail: Authentication is required for this endpoint
 
     Forbidden:
       description: Forbidden - insufficient privileges
@@ -3783,6 +4028,14 @@ components:
     DifUnauthorized:
       description: Unauthorized - missing or invalid DIF API key, Bridge JWT bearer token, or BRIDGE_DIF_TOKEN
       content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          example:
+            type: "authentication_failed"
+            title: "Missing Authorization header"
+            status: 401
+            detail: "Authorization header is required for this endpoint"
         application/json:
           schema:
             $ref: '#/components/schemas/DifBridgeErrorResponse'
@@ -4606,6 +4859,212 @@ components:
           type: object
           additionalProperties: true
       additionalProperties: true
+
+    DifCurrentIdentityResponse:
+      type: object
+      required:
+        - actor_type
+        - auth_mode
+        - user_id
+        - keys_supported
+      properties:
+        actor_type:
+          type: string
+          example: user
+        auth_mode:
+          type: string
+          example: cc_api_key
+        user_id:
+          type: integer
+          example: 42
+        contributor_id:
+          type: string
+          example: cncf-contributor-123
+        name:
+          type: string
+        email:
+          type: string
+        keys_supported:
+          type: boolean
+        limits_url:
+          type: string
+        funding_url:
+          type: string
+        usage_url:
+          type: string
+
+    DifAPIKeyCreateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          example: Coherence Network CLI
+        expires_in_days:
+          type: integer
+          minimum: 0
+          example: 30
+
+    DifAPIKeyUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          example: Production DIF Key
+        expires_at:
+          type: integer
+          description: Unix timestamp for expiry.
+        expires_in_days:
+          type: integer
+          minimum: 0
+          description: Relative expiry from now in days.
+        clear_expiry:
+          type: boolean
+          description: When true, removes the existing expiry.
+
+    DifAPIKeyResponse:
+      type: object
+      required:
+        - id
+        - name
+        - preview
+        - status
+        - created_at
+      properties:
+        id:
+          type: string
+          example: dif_pk_3ed478c0abe87beb
+        name:
+          type: string
+          example: Coherence Network CLI
+        token:
+          type: string
+          description: Raw DIF API key returned only on create/rotate.
+          example: dif_pk_3ed478c0abe87beb.1419de11d2bdec644f15c80fa0c79f299c0403aafb7231ad
+        preview:
+          type: string
+          example: dif_pk_3ed478c0abe87beb.1419de…31ad
+        status:
+          type: string
+          enum: [active, expired, revoked]
+        contributor_id:
+          type: string
+          example: cncf-contributor-123
+        created_at:
+          type: integer
+          example: 1774470353
+        last_used_at:
+          type: integer
+        expires_at:
+          type: integer
+        revoked_at:
+          type: integer
+
+    DifAPIKeyListResponse:
+      type: object
+      required:
+        - data
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DifAPIKeyResponse'
+
+    DifRecentCall:
+      type: object
+      properties:
+        created_at:
+          type: integer
+        path:
+          type: string
+        language:
+          type: string
+        http_status:
+          type: integer
+        stream:
+          type: string
+        request_ip:
+          type: string
+
+    DifUsageSummary:
+      type: object
+      required:
+        - total_calls
+        - calls_24h
+        - last_used_at
+        - top_languages
+        - top_statuses
+        - recent_calls
+      properties:
+        key_id:
+          type: string
+          nullable: true
+        total_calls:
+          type: integer
+        calls_24h:
+          type: integer
+        last_used_at:
+          type: integer
+        top_languages:
+          type: object
+          additionalProperties:
+            type: integer
+        top_statuses:
+          type: object
+          additionalProperties:
+            type: integer
+        recent_calls:
+          type: array
+          items:
+            $ref: '#/components/schemas/DifRecentCall'
+
+    DifLimitsResponse:
+      type: object
+      properties:
+        plan_name:
+          type: string
+          example: free
+        active_key_count:
+          type: integer
+          example: 2
+        anonymous_verify:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            requests_per_minute:
+              type: integer
+            burst:
+              type: integer
+        api_key_access:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            rate_limit:
+              type: string
+              example: unlimited
+            language_management:
+              type: boolean
+            verify_requires_key:
+              type: boolean
+            verify_anonymous_mode:
+              type: boolean
+
+    DifFundingResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: not_configured
+        provider:
+          type: string
+          example: stripe
+        funding_required:
+          type: boolean
+        paid_tier_enabled:
+          type: boolean
+        message:
+          type: string
 
     # -------------------------------------------------------------------------
     # RBL Schemas
@@ -5769,7 +6228,7 @@ components:
       bearerFormat: JWT
       description: |
         JWT token obtained from `/auth/login` or `/auth/token`.
-        
+
         Include in the Authorization header:
         ```
         Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature
@@ -5802,6 +6261,19 @@ components:
         The same key may also be sent as:
         ```
         Authorization: Bearer dif_pk_...<secret>
+        ```
+
+    CCIdentityKeyAuth:
+      type: apiKey
+      in: header
+      name: X-CC-API-Key
+      description: |
+        Coherence identity API key used to manage DIF API keys and read the
+        current contributor's DIF usage, limits, and funding state.
+
+        Include in the request header:
+        ```
+        X-CC-API-Key: <coherence_identity_key>
         ```
 
 security:
