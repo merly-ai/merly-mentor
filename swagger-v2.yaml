@@ -108,8 +108,12 @@ info:
 
     ### DIF Analyzer Quickstart
 
-    The bridge exposes DIF through `/api/v2/dif/*` and requires the service token
-    configured in `BRIDGE_DIF_TOKEN`.
+    The bridge exposes DIF through `/api/v2/dif/*`.
+    Calls may authenticate with either:
+    - anonymous, rate-limited access for `POST /dif/verify`
+    - a DIF API key via `X-DIF-API-Key` or `Authorization: Bearer <dif_api_key>`
+    - a normal Bridge JWT bearer token from `/auth/login` or `/auth/token`
+    - the bridge service token configured in `BRIDGE_DIF_TOKEN`.
 
     1. Load the Python language model:
        - `POST /dif/languages/load`
@@ -260,9 +264,14 @@ paths:
       summary: List DIF language load states
       description: |
         Returns the language support matrix exposed by the bridge's DIF analyzer.
-        The bridge serves this path under `/api/v2/dif/languages` and requires the
-        service token configured in `BRIDGE_DIF_TOKEN`.
+        The bridge serves this path under `/api/v2/dif/languages` and accepts:
+        - `X-DIF-API-Key: <key>`
+        - `Authorization: Bearer <dif_api_key>`
+        - a normal Bridge JWT bearer token
+        - the bridge service token configured in `BRIDGE_DIF_TOKEN`
       security:
+        - DifAPIKeyAuth: []
+        - BearerAuth: []
         - DifServiceAuth: []
       responses:
         '200':
@@ -304,7 +313,15 @@ paths:
         Requests the daemon to load one or more languages before verification.
         `languages` must be a non-empty array. `wait` defaults to `true`; `wait=false`
         is rejected by the daemon build used in this workspace.
+
+        This endpoint accepts:
+        - `X-DIF-API-Key: <key>`
+        - `Authorization: Bearer <dif_api_key>`
+        - a normal Bridge JWT bearer token
+        - the bridge service token configured in `BRIDGE_DIF_TOKEN`
       security:
+        - DifAPIKeyAuth: []
+        - BearerAuth: []
         - DifServiceAuth: []
       requestBody:
         required: true
@@ -356,7 +373,17 @@ paths:
         widen `clear` or `mixed` results into `review` when DIF sees weaker
         semantic support or higher statement complexity. The underlying verifier
         findings do not change; only the compact routing layer broadens.
+
+        Access modes:
+        - anonymous, rate-limited access for light public usage
+        - `X-DIF-API-Key: <key>` for authenticated access without JWT
+        - `Authorization: Bearer <dif_api_key>` as an alternative transport
+        - a normal Bridge JWT bearer token
+        - the bridge service token configured in `BRIDGE_DIF_TOKEN`
       security:
+        - {}
+        - DifAPIKeyAuth: []
+        - BearerAuth: []
         - DifServiceAuth: []
       requestBody:
         required: true
@@ -684,6 +711,8 @@ paths:
                       latency_ms: 0
         '401':
           $ref: '#/components/responses/DifUnauthorized'
+        '429':
+          $ref: '#/components/responses/DifRateLimited'
         '502':
           $ref: '#/components/responses/DifDaemonDown'
         '503':
@@ -3752,13 +3781,29 @@ components:
                       $ref: '#/components/schemas/ValidationErrorItem'
 
     DifUnauthorized:
-      description: Unauthorized - missing or invalid BRIDGE_DIF_TOKEN
+      description: Unauthorized - missing or invalid DIF API key, Bridge JWT bearer token, or BRIDGE_DIF_TOKEN
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/DifBridgeErrorResponse'
           example:
             error: "unauthorized"
+
+    DifRateLimited:
+      description: Anonymous DIF verify rate limit exceeded
+      headers:
+        Retry-After:
+          description: Seconds until the next anonymous verify request is allowed.
+          schema:
+            type: string
+            example: "12"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/DifBridgeErrorResponse'
+          example:
+            error: "rate_limited"
+            message: "Anonymous DIF verify rate limit exceeded"
 
     DifDisabled:
       description: DIF bridge disabled because BRIDGE_DIF_TOKEN is unset
@@ -5740,6 +5785,23 @@ components:
         Include in the Authorization header:
         ```
         Authorization: Bearer <BRIDGE_DIF_TOKEN>
+        ```
+
+    DifAPIKeyAuth:
+      type: apiKey
+      in: header
+      name: X-DIF-API-Key
+      description: |
+        DIF API key for authenticated DIF access without JWT.
+
+        Preferred header:
+        ```
+        X-DIF-API-Key: dif_pk_...<secret>
+        ```
+
+        The same key may also be sent as:
+        ```
+        Authorization: Bearer dif_pk_...<secret>
         ```
 
 security:
