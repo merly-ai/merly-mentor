@@ -391,6 +391,10 @@ paths:
         - `Authorization: Bearer <dif_api_key>` as an alternative transport
         - a normal Bridge JWT bearer token
         - the bridge service token configured in `BRIDGE_DIF_TOKEN`
+
+        Every verify response includes a stable `eventId` and `X-DIF-Event-Id`
+        header. Downstream tooling should preserve that id and use it when
+        reporting later judgment or benchmark feedback through `/dif/feedback`.
       security:
         - {}
         - ApiKeyAuth: []
@@ -453,6 +457,11 @@ paths:
       responses:
         '200':
           description: Verification result
+          headers:
+            X-DIF-Event-Id:
+              schema:
+                type: string
+              description: Stable per-request DIF event id used for telemetry and feedback reporting.
           content:
             application/json:
               schema:
@@ -727,6 +736,72 @@ paths:
         '502':
           $ref: '#/components/responses/DifDaemonDown'
 
+  /dif/feedback:
+    post:
+      tags: [DIF]
+      operationId: createDifFeedback
+      summary: Report downstream feedback for a prior DIF verify call
+      description: |
+        Records downstream judgment for a previously issued DIF `eventId`.
+        Use this to report whether a verifier result was useful, incorrect,
+        or later confirmed by an agent, user, or benchmark harness.
+
+        This endpoint requires authenticated access:
+        - `X-API-Key: <key>`
+        - `Authorization: Bearer <dif_api_key>`
+        - a normal Bridge JWT bearer token
+        - the bridge service token configured in `BRIDGE_DIF_TOKEN`
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+        - DifServiceAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DifFeedbackCreateRequest'
+      responses:
+        '200':
+          description: Feedback accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifFeedbackCreateResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /dif/feedback/{event_id}:
+    get:
+      tags: [DIF]
+      operationId: getDifFeedbackByEvent
+      summary: Read feedback attached to one DIF verify event
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+        - DifServiceAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Feedback rows for the event
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifFeedbackListResponse'
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /dif/me:
     get:
       tags: [DIF]
@@ -919,6 +994,32 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DifUsageSummary'
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+
+  /dif/me/feedback:
+    get:
+      tags: [DIF]
+      operationId: getDifCurrentIdentityFeedback
+      summary: Read labeled DIF quality metrics for the current identity
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: days
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 90
+            default: 30
+      responses:
+        '200':
+          description: Feedback-derived precision/recall summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifFeedbackSummary'
         '401':
           $ref: '#/components/responses/DifUnauthorized'
 
@@ -4760,6 +4861,10 @@ components:
         payload and the most useful ranking fields are `counts`, `semantic_support_score`,
         `statement_complexity_score`, `structural_cost_score`, `verification_score`, and
         `trust_profile.signal`.
+      properties:
+        eventId:
+          type: string
+          description: Stable bridge-generated event id for telemetry and feedback reporting.
       additionalProperties: true
 
     DifVerifyScriptResponse:
@@ -5016,6 +5121,157 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/DifRecentCall'
+
+    DifFeedbackCreateRequest:
+      type: object
+      required:
+        - eventId
+        - feedbackKind
+        - groundTruth
+        - agentAction
+      properties:
+        eventId:
+          type: string
+        feedbackKind:
+          type: string
+          enum: [judgment, execution_outcome, user_confirmation, benchmark_label]
+        groundTruth:
+          type: string
+          enum: [positive, negative, unknown]
+        agentAction:
+          type: string
+          enum: [accepted, rejected, ignored, escalated]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        reasonCode:
+          type: string
+        notes:
+          type: string
+        resolutionState:
+          type: string
+          enum: [provisional, confirmed, disputed]
+        taskId:
+          type: string
+        runId:
+          type: string
+        evidence:
+          type: object
+          additionalProperties: true
+
+    DifFeedbackCreateResponse:
+      type: object
+      required: [feedbackId, eventId, accepted]
+      properties:
+        feedbackId:
+          type: string
+        eventId:
+          type: string
+        accepted:
+          type: boolean
+
+    DifFeedbackRow:
+      type: object
+      properties:
+        feedbackId:
+          type: string
+        eventId:
+          type: string
+        createdAt:
+          type: integer
+        reporterType:
+          type: string
+        reporterIdentity:
+          type: string
+        apiKeyId:
+          type: string
+        apiKeyPreview:
+          type: string
+        feedbackKind:
+          type: string
+        groundTruth:
+          type: string
+        agentAction:
+          type: string
+        confidence:
+          type: number
+        reasonCode:
+          type: string
+        notes:
+          type: string
+        resolutionState:
+          type: string
+        taskId:
+          type: string
+        runId:
+          type: string
+        evidence:
+          type: object
+          additionalProperties: true
+
+    DifFeedbackListResponse:
+      type: object
+      properties:
+        eventId:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DifFeedbackRow'
+
+    DifFeedbackSummaryBucket:
+      type: object
+      properties:
+        key:
+          type: string
+        true_positives:
+          type: integer
+        false_positives:
+          type: integer
+        false_negatives:
+          type: integer
+        true_negatives:
+          type: integer
+
+    DifFeedbackSummary:
+      type: object
+      properties:
+        days:
+          type: integer
+        total_feedback:
+          type: integer
+        labeled_calls:
+          type: integer
+        precision:
+          type: number
+        recall:
+          type: number
+        true_positives:
+          type: integer
+        false_positives:
+          type: integer
+        false_negatives:
+          type: integer
+        true_negatives:
+          type: integer
+        unlabeled_calls:
+          type: integer
+        median_label_delay_minutes:
+          type: number
+        by_language:
+          type: array
+          items:
+            $ref: '#/components/schemas/DifFeedbackSummaryBucket'
+        by_semantic_family:
+          type: array
+          items:
+            $ref: '#/components/schemas/DifFeedbackSummaryBucket'
+        recent_feedback:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
 
     DifLimitsResponse:
       type: object
