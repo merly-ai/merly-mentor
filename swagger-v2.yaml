@@ -1059,6 +1059,235 @@ paths:
         '401':
           $ref: '#/components/responses/DifUnauthorized'
 
+  /me:
+    get:
+      tags: [Authentication]
+      operationId: getCurrentIdentity
+      summary: Resolve the current authenticated identity
+      description: |
+        Returns the current authenticated identity for self-service API tooling.
+        This route accepts:
+        - `X-API-Key: <key>`
+        - `Authorization: Bearer <api_key>`
+        - a normal Bridge JWT bearer token
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current authenticated identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifCurrentIdentityResponse'
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+
+  /me/api-keys:
+    get:
+      tags: [Authentication]
+      operationId: listCurrentUserApiKeys
+      summary: List API keys for the current identity
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Active API keys for the current identity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DifAPIKeyResponse'
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+    post:
+      tags: [Authentication]
+      operationId: createCurrentUserApiKey
+      summary: Create an API key for the current identity
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DifAPIKeyCreateRequest'
+      responses:
+        '201':
+          description: API key created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifAPIKeyResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+
+  /me/api-keys/{key_id}:
+    patch:
+      tags: [Authentication]
+      operationId: updateCurrentUserApiKey
+      summary: Update API key metadata
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: key_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DifAPIKeyUpdateRequest'
+      responses:
+        '200':
+          description: Updated API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifAPIKeyResponse'
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Authentication]
+      operationId: revokeCurrentUserApiKey
+      summary: Revoke an API key
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: key_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: API key revoked
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /me/api-keys/{key_id}/rotate:
+    post:
+      tags: [Authentication]
+      operationId: rotateCurrentUserApiKey
+      summary: Rotate an API key
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: key_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          description: Rotated API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifAPIKeyResponse'
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /me/api-keys/{key_id}/usage:
+    get:
+      tags: [Authentication]
+      operationId: getCurrentUserApiKeyUsage
+      summary: Read usage for one API key
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: key_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Usage summary for one API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifUsageSummary'
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /me/usage:
+    get:
+      tags: [Authentication]
+      operationId: getCurrentUserUsage
+      summary: Read aggregate API usage for the current identity
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Aggregate API usage across the current identity's keys
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifUsageSummary'
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+
+  /me/limits:
+    get:
+      tags: [Authentication]
+      operationId: getCurrentUserLimits
+      summary: Read plan and limit state for the current identity
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Plan, rate, and key-access limits
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifLimitsResponse'
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+
+  /me/funding:
+    get:
+      tags: [Authentication]
+      operationId: getCurrentUserFunding
+      summary: Read funding and billing state for the current identity
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Funding and billing state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DifFundingResponse'
+        '401':
+          $ref: '#/components/responses/DifUnauthorized'
+
   # ---------------------------------------------------------------------------
   # Authentication
   # ---------------------------------------------------------------------------
